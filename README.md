@@ -1,7 +1,6 @@
 # 🤖 HubSage
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Gemini CLI](https://img.shields.io/badge/Gemini_CLI-Compatible-blue.svg)](https://github.com/google/gemini-cli)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 
 [English](#english) | [中文](#chinese)
@@ -29,16 +28,14 @@ graph TD
 
 ### 🚀 快速开始 (Quick Start)
 
-通过 Gemini CLI 安装此技能：
+**安装技能：**
+将其克隆或放置到你的 AI Agent 所支持的 Skills 目录中（例如 `~/.gemini/skills/` 或 Claude Code 等支持的目录）。
 
-```bash
-gemini skills install Liii8888/HubSage
-```
+**在任何支持的 Agent 中唤醒：**
+在终端中唤醒你的 AI Agent 并输入以下指令：
 
-在你的项目中使用：
-
-```bash
-gemini "使用 HubSage 规范化当前开源项目，并生成双语 README"
+```text
+使用 HubSage 规范化当前开源项目，并生成双语 README
 ```
 
 ### 🤝 参与贡献
@@ -68,16 +65,14 @@ graph TD
 
 ### 🚀 Quick Start
 
-Install this skill via Gemini CLI:
+**Installation:**
+Clone or place this skill into the supported skills directory of your AI Agent (e.g., `~/.gemini/skills/` or directories supported by Claude Code).
 
-```bash
-gemini skills install Liii8888/HubSage
-```
+**Invoke in any compatible Agent:**
+Open your terminal, launch your AI Agent, and input the following prompt:
 
-Use it in your project:
-
-```bash
-gemini "Use HubSage to standardize the current open-source project and generate a bilingual README"
+```text
+Use HubSage to standardize the current open-source project and generate a bilingual README
 ```
 
 ### 🤝 Contributing
