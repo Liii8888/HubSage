@@ -29,10 +29,14 @@ graph TD
 ### 🚀 快速开始 (Quick Start)
 
 **安装技能：**
-将其克隆或放置到你的 AI Agent 所支持的 Skills 目录中（例如 `~/.gemini/skills/` 或 Claude Code 等支持的目录）。
+在终端中唤醒你的 AI Agent 并输入以下指令，让其自动下载并配置此技能：
 
-**在任何支持的 Agent 中唤醒：**
-在终端中唤醒你的 AI Agent 并输入以下指令：
+```text
+下载这个 Skills：https://github.com/Liii8888/HubSage
+```
+
+**使用技能：**
+配置完成后，你可以向 Agent 发送如下指令来管理你的项目：
 
 ```text
 使用 HubSage 规范化当前开源项目，并生成双语 README
@@ -66,10 +70,14 @@ graph TD
 ### 🚀 Quick Start
 
 **Installation:**
-Clone or place this skill into the supported skills directory of your AI Agent (e.g., `~/.gemini/skills/` or directories supported by Claude Code).
+Launch your AI Agent in the terminal and input the following prompt to let it download and configure the skill automatically:
 
-**Invoke in any compatible Agent:**
-Open your terminal, launch your AI Agent, and input the following prompt:
+```text
+Download this skill: https://github.com/Liii8888/HubSage
+```
+
+**Usage:**
+Once configured, you can manage your project by sending a prompt like this:
 
 ```text
 Use HubSage to standardize the current open-source project and generate a bilingual README
