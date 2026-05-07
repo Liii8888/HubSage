@@ -1,0 +1,85 @@
+# 🤖 HubSage
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Gemini CLI](https://img.shields.io/badge/Gemini_CLI-Compatible-blue.svg)](https://github.com/google/gemini-cli)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
+
+[English](#english) | [中文](#chinese)
+
+---
+
+<a name="chinese"></a>
+## 📖 简介 (Introduction)
+
+HubSage 是一个为 Gemini CLI 打造的骨灰级开源项目维护者技能（Agent Skill）。它能够帮助你以专业的开源作者标准（如 Gitmoji 规范、中英双语文档、生成徽章和 Release Notes）自动化管理仓库、编写文档并执行版本发布。
+
+### 🏗 架构 / 工作流 (Architecture)
+
+```mermaid
+graph TD
+    A[用户输入指令] --> B{触发 HubSage}
+    B -->|文档化| C[生成双语 README & 徽章]
+    B -->|代码提交| D[Gitmoji + Conventional Commits]
+    B -->|版本发布| E[自动收集日志 & 生成 Release Notes]
+    E --> F[gh release create]
+    C --> G[标准化开源仓库]
+    D --> G
+    F --> G
+```
+
+### 🚀 快速开始 (Quick Start)
+
+通过 Gemini CLI 安装此技能：
+
+```bash
+gemini skills install Liii8888/HubSage
+```
+
+在你的项目中使用：
+
+```bash
+gemini "使用 HubSage 规范化当前开源项目，并生成双语 README"
+```
+
+### 🤝 参与贡献
+
+欢迎提交 PR！请查阅我们的 [贡献指南 (CONTRIBUTING.md)](CONTRIBUTING.md) 了解更多分支规范与提交流程。
+
+---
+
+<a name="english"></a>
+## 📖 Introduction
+
+HubSage is an elite open-source project maintainer skill (Agent Skill) built for the Gemini CLI. It helps you automate repository management, write documentation, and execute releases using professional open-source standards (such as Gitmoji, bilingual documentation, badges, and release notes).
+
+### 🏗 Architecture / Workflow
+
+```mermaid
+graph TD
+    A[User Input] --> B{Trigger HubSage}
+    B -->|Documentation| C[Generate Bilingual README & Badges]
+    B -->|Commits| D[Gitmoji + Conventional Commits]
+    B -->|Release| E[Collect Logs & Gen Release Notes]
+    E --> F[gh release create]
+    C --> G[Standardized Open Source Repo]
+    D --> G
+    F --> G
+```
+
+### 🚀 Quick Start
+
+Install this skill via Gemini CLI:
+
+```bash
+gemini skills install Liii8888/HubSage
+```
+
+Use it in your project:
+
+```bash
+gemini "Use HubSage to standardize the current open-source project and generate a bilingual README"
+```
+
+### 🤝 Contributing
+
+PRs are welcome! Please check out our [Contributing Guidelines (CONTRIBUTING.md)](CONTRIBUTING.md) for more details on branching and commit workflows.
