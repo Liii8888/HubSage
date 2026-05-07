@@ -11,7 +11,7 @@
 <a name="chinese"></a>
 ## 📖 简介 (Introduction)
 
-HubSage 是一个为 Gemini CLI 打造的骨灰级开源项目维护者技能（Agent Skill）。它能够帮助你以专业的开源作者标准（如 Gitmoji 规范、中英双语文档、生成徽章和 Release Notes）自动化管理仓库、编写文档并执行版本发布。
+HubSage 是一个通用的专业开源项目维护者技能（Agent Skill），适用于各类具备 Shell 执行能力的 AI Agent。它能够帮助你以专业的开源作者标准（如 Gitmoji 规范、中英双语文档、生成徽章和 Release Notes）自动化管理仓库、编写文档并执行版本发布。
 
 ### 🏗 架构 / 工作流 (Architecture)
 
@@ -50,7 +50,7 @@ gemini "使用 HubSage 规范化当前开源项目，并生成双语 README"
 <a name="english"></a>
 ## 📖 Introduction
 
-HubSage is an elite open-source project maintainer skill (Agent Skill) built for the Gemini CLI. It helps you automate repository management, write documentation, and execute releases using professional open-source standards (such as Gitmoji, bilingual documentation, badges, and release notes).
+HubSage is a professional open-source project maintainer skill (Agent Skill) designed for AI Agents with Shell execution capabilities. It helps you automate repository management, write documentation, and execute releases using professional open-source standards (such as Gitmoji, bilingual documentation, badges, and release notes).
 
 ### 🏗 Architecture / Workflow
 
