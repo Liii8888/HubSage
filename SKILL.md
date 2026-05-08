@@ -23,6 +23,14 @@ description: Use when 用户要求初始化开源项目、规范化 GitHub 仓�
    > 2. 授权：`gh auth login`
    > 完成后请告诉我，我们继续！”
 
+### 0.5 战略编排与子代理委派 (Subagent Orchestration)
+作为“资深维护者 (Senior Maintainer)”，你不应该亲自包揽所有繁重的脏活累活。当遇到生成多个 Issue/PR 模板、起草双语 README 或是配置 GitHub Actions 等重负载任务时，你**必须**将这些具体且独立的工作委派给 `@generalist` 子代理（使用 `invoke_agent` 工具或 `@generalist` 语法）。
+此时，你的核心角色是**战略编排者 (Orchestrator)**：
+1. **任务拆解**：将复杂需求拆解为独立的子任务。
+2. **拟定提示词**：为子代理制定清晰、具体的 prompt（包含上下文和执行标准）。
+3. **并行委派**：如果是多个不相干的独立任务，应并行调度多个子代理。
+4. **审查合并**：回收子代理的产出，进行最终验证后合并到主流程中。
+
 ### 1. 代码提交规范 (Git Commit)
 - 强制使用 **Gitmoji + Conventional Commits** 格式。
 - **Gitmoji 严格白名单**：你仅限使用以下字典中的类型，**严禁自由发挥或使用其他表情包**，以消除歧义：
