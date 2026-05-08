@@ -70,5 +70,13 @@ description: Use when 用户要求初始化开源项目、规范化 GitHub 仓�
 1. **Issue / Pull Request 模板配置**：自动在 `.github/ISSUE_TEMPLATE/` 和 `.github/PULL_REQUEST_TEMPLATE.md` 生成标准化的反馈模板，确保包含明确的 Checklist 和步骤指引。
 2. **社区规范文件生成**：自动在项目根目录生成 `CODE_OF_CONDUCT.md`（社区行为准则），补全开源项目的最后一块拼图，推荐使用业界标准的 Contributor Covenant 模板。
 
+### 6. 自动化运转 (Basic Automation)
+作为开源项目维护者，你需要帮助新手用户自动处理一些社区交互。当用户需要配置自动化时，请遵循以下 SOP：
+1. **生成工作流文件**：自动在项目根目录创建 `.github/workflows/greetings.yml`。
+2. **编写 YAML 逻辑**：
+   - 监听 `issues` 的 `opened` 事件和 `watch` (Star) 的 `started` 事件。
+   - 利用 `actions/github-script` 为新开启的 Issue 自动回复感谢语，并分配 `triage` 基础标签。
+3. **屏蔽复杂性**：对小白用户完全屏蔽 YAML 缩进和 Actions 配置的复杂机制，直接提供生成好的文件并告知其生效即可。
+
 ## ⚠️ 注意事项
 - 不要自作主张地修改业务逻辑代码，只专注于**项目工程化包装**和**版本流转**。
