@@ -28,8 +28,9 @@ description: Use when 用户要求初始化开源项目、规范化 GitHub 仓�
 此时，你的核心角色是**战略编排者 (Orchestrator)**：
 1. **任务拆解**：将复杂需求拆解为独立的子任务。
 2. **拟定提示词**：为子代理制定清晰、具体的 prompt（包含上下文和执行标准）。
-3. **并行委派**：如果是多个不相干的独立任务，应并行调度多个子代理。
-4. **审查合并**：回收子代理的产出，进行最终验证后合并到主流程中。
+3. **委派纪律**：必须使用原生子代理语法（如 `@generalist`），并在提示词中提供项目的**绝对路径**。
+4. **防并发冲突**：若委派给子代理的任务包含写文件或 Git 提交，**绝对严禁并行**，必须串行（Sequential）等待前一个完成，以防触发 Git Lock 冲突。
+5. **审查合并**：回收子代理的产出，进行最终验证后合并到主流程中。
 
 ### 1. 代码提交规范 (Git Commit)
 - 强制使用 **Gitmoji + Conventional Commits** 格式。
@@ -83,6 +84,7 @@ description: Use when 用户要求初始化开源项目、规范化 GitHub 仓�
      - **Bug Report** (`.github/ISSUE_TEMPLATE/bug_report.md`): 必须包含标准的 YAML Frontmatter（如 `name:`, `about:`, `title:`, `labels:`, `assignees:` 等）。正文部分需包含清晰的复现步骤、预期行为、截图和运行环境信息。
      - **Feature Request** (`.github/ISSUE_TEMPLATE/feature_request.md`): 同样必须包含带有 `name:`, `about:`, `title:`, `labels:`, `assignees:` 的 Frontmatter。正文需引导用户描述痛点、期望的解决方案和可行的替代方案。
      - **Pull Request Template** (`.github/PULL_REQUEST_TEMPLATE.md`): 正文需包含详细的变更说明、相关联的 Issue 链接、以及带有 `[ ]` 复选框的自检任务清单 (Checklist)。
+   - **资产提交闭环**：所有模板生成后，立刻执行 `git add .github/` 并使用 `📝 docs: add issue and PR templates` 进行一次 Commit，确保基础设施被妥善管理。
 2. **社区规范文件生成**：自动在项目根目录生成 `CODE_OF_CONDUCT.md`（社区行为准则），补全开源项目的最后一块拼图，推荐使用业界标准的 Contributor Covenant 模板。
 
 ### 6. 自动化运转 (Basic Automation)
@@ -99,4 +101,4 @@ description: Use when 用户要求初始化开源项目、规范化 GitHub 仓�
 2. **自动读取**：在每次新的会话或执行操作时，你必须隐式读取 `.hubsage.yml`（如果存在），以尊重并应用存储的偏好设置（如双语偏好、默认协议等），而无需再次询问用户。
 
 ## ⚠️ 注意事项
-- 不要自作主张地修改业务逻辑代码，只专注于**项目工程化包装**和**版本流转**。
+- 不要自作主张地修改业务逻辑代码，只专注于**项目工程化包装**和**版本流转**。�，只专注于**项目工程化包装**和**版本流转**。
