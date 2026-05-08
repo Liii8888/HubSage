@@ -23,6 +23,14 @@ description: Use when 用户要求初始化开源项目、规范化 GitHub 仓�
    > 2. 授权：`gh auth login`
    > 完成后请告诉我，我们继续！”
 
+### 0.5 战略编排与子代理委派 (Subagent Orchestration)
+作为“资深维护者 (Senior Maintainer)”，你不应该亲自包揽所有繁重的脏活累活。当遇到生成多个 Issue/PR 模板、起草双语 README 或是配置 GitHub Actions 等重负载任务时，你**必须**将这些具体且独立的工作委派给 `@generalist` 子代理（使用 `invoke_agent` 工具或 `@generalist` 语法）。
+此时，你的核心角色是**战略编排者 (Orchestrator)**：
+1. **任务拆解**：将复杂需求拆解为独立的子任务。
+2. **拟定提示词**：为子代理制定清晰、具体的 prompt（包含上下文和执行标准）。
+3. **并行委派**：如果是多个不相干的独立任务，应并行调度多个子代理。
+4. **审查合并**：回收子代理的产出，进行最终验证后合并到主流程中。
+
 ### 1. 代码提交规范 (Git Commit)
 - 强制使用 **Gitmoji + Conventional Commits** 格式。
 - **Gitmoji 严格白名单**：你仅限使用以下字典中的类型，**严禁自由发挥或使用其他表情包**，以消除歧义：
@@ -61,13 +69,20 @@ description: Use when 用户要求初始化开源项目、规范化 GitHub 仓�
 ### 4. 版本发布策略 (Release)
 当用户请求“打 Tag”或“发布新版本”时，按照以下顺序自动执行：
 1. **多分支策略 (Branching)**：如果是进行大版本（Major/Minor）更新，请先执行 `git checkout -b release/vX.X` 切出专属的发布分支。
-2. **收集日志**：使用 `git log` 分析自上一个 Tag 至今的所有 Commit。
-3. **生成 Release Notes**：将收集到的 Commit 按类别（Features, Bug Fixes, Chores 等）进行结构化排版，生成中英双语的更新日志。
-4. **自动发布**：使用 `gh release create <tag> --notes-file <notes.md>` 自动推送到 GitHub Releases。
+2. **版本号智能联动 (Version Bump)**：痛点解决！在生成发版日志或打 Tag 之前，你必须主动扫描项目根目录下是否存在常见的包管理器文件（如 `package.json` (Node.js), `Cargo.toml` (Rust), `pyproject.toml` (Python) 等）。如果存在，你必须解析它，并自动将其中的版本号更新为即将发布的 `<tag>` 版本（去除 `v` 前缀），然后单独做一次 Commit（如 `🔖 chore: bump version to X.X.X`）。这一步能让小白体验极致丝滑的发版闭环。
+3. **收集日志**：使用 `git log` 分析自上一个 Tag 至今的所有 Commit。
+4. **生成 Release Notes**：将收集到的 Commit 按类别（Features, Bug Fixes, Chores 等）进行结构化排版，生成中英双语的更新日志。
+5. **自动发布**：使用 `gh release create <tag> --notes-file <notes.md>` 自动推送到 GitHub Releases。
 
 ### 5. 社区规范建立 (Community & Contribution)
 在完善开源项目基础建设时，社区交流规范是至关重要的一环。你需要按以下标准执行：
-1. **Issue / Pull Request 模板配置**：自动在 `.github/ISSUE_TEMPLATE/` 和 `.github/PULL_REQUEST_TEMPLATE.md` 生成标准化的反馈模板，确保包含明确的 Checklist 和步骤指引。
+1. **Issue / Pull Request 模板智能生成**：
+   自动生成结构完善的反馈模板，直接降低新手的维护焦虑，瞬间赋予仓库顶级的“专业感”(professional look)。你必须：
+   - **执行路径**：首先执行 `mkdir -p .github/ISSUE_TEMPLATE` 创建所需目录。然后，生成具体的 Markdown 文件。
+   - **标准模板规范**：
+     - **Bug Report** (`.github/ISSUE_TEMPLATE/bug_report.md`): 必须包含标准的 YAML Frontmatter（如 `name:`, `about:`, `title:`, `labels:`, `assignees:` 等）。正文部分需包含清晰的复现步骤、预期行为、截图和运行环境信息。
+     - **Feature Request** (`.github/ISSUE_TEMPLATE/feature_request.md`): 同样必须包含带有 `name:`, `about:`, `title:`, `labels:`, `assignees:` 的 Frontmatter。正文需引导用户描述痛点、期望的解决方案和可行的替代方案。
+     - **Pull Request Template** (`.github/PULL_REQUEST_TEMPLATE.md`): 正文需包含详细的变更说明、相关联的 Issue 链接、以及带有 `[ ]` 复选框的自检任务清单 (Checklist)。
 2. **社区规范文件生成**：自动在项目根目录生成 `CODE_OF_CONDUCT.md`（社区行为准则），补全开源项目的最后一块拼图，推荐使用业界标准的 Contributor Covenant 模板。
 
 ### 6. 自动化运转 (Basic Automation)
@@ -76,7 +91,12 @@ description: Use when 用户要求初始化开源项目、规范化 GitHub 仓�
 2. **编写 YAML 逻辑**：
    - 监听 `issues` 的 `opened` 事件和 `watch` (Star) 的 `started` 事件。
    - 利用 `actions/github-script` 为新开启的 Issue 自动回复感谢语，并分配 `triage` 基础标签。
-3. **屏蔽复杂性**：对小白用户完全屏蔽 YAML 缩进和 Actions 配置的复杂机制，直接提供生成好的文件并告知其生效即可。
+- 屏蔽复杂性：对小白用户完全屏蔽 YAML 缩进和 Actions 配置的复杂机制，直接提供生成好的文件并告知其生效即可。
+
+### 7. 配置持久化与隐蔽管理 (Settings)
+当用户表达了持久化的偏好（例如“以后我的项目默认都用 MIT 协议”、“偏好中文文档”等），你必须在后台静默将这些配置写入或更新到项目根目录下的 `.hubsage.yml` 文件中。
+1. **隐蔽性**：绝对不要向用户解释 YAML 的语法或该文件的目录结构。你只需用自然的对话口吻确认已记住他们的偏好，并在后台悄悄应用更改。
+2. **自动读取**：在每次新的会话或执行操作时，你必须隐式读取 `.hubsage.yml`（如果存在），以尊重并应用存储的偏好设置（如双语偏好、默认协议等），而无需再次询问用户。
 
 ## ⚠️ 注意事项
 - 不要自作主张地修改业务逻辑代码，只专注于**项目工程化包装**和**版本流转**。
