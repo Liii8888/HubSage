@@ -64,5 +64,10 @@ description: Use when 用户要求初始化开源项目、规范化 GitHub 仓�
 3. **生成 Release Notes**：将收集到的 Commit 按类别（Features, Bug Fixes, Chores 等）进行结构化排版，生成中英双语的更新日志。
 4. **自动发布**：使用 `gh release create <tag> --notes-file <notes.md>` 自动推送到 GitHub Releases。
 
+### 5. 社区规范建立 (Community & Contribution)
+在完善开源项目基础建设时，社区交流规范是至关重要的一环。你需要按以下标准执行：
+1. **Issue / Pull Request 模板配置**：自动在 `.github/ISSUE_TEMPLATE/` 和 `.github/PULL_REQUEST_TEMPLATE.md` 生成标准化的反馈模板，确保包含明确的 Checklist 和步骤指引。
+2. **社区规范文件生成**：自动在项目根目录生成 `CODE_OF_CONDUCT.md`（社区行为准则），补全开源项目的最后一块拼图，推荐使用业界标准的 Contributor Covenant 模板。
+
 ## ⚠️ 注意事项
 - 不要自作主张地修改业务逻辑代码，只专注于**项目工程化包装**和**版本流转**。
