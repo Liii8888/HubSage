@@ -69,9 +69,10 @@ description: Use when 用户要求初始化开源项目、规范化 GitHub 仓�
 ### 4. 版本发布策略 (Release)
 当用户请求“打 Tag”或“发布新版本”时，按照以下顺序自动执行：
 1. **多分支策略 (Branching)**：如果是进行大版本（Major/Minor）更新，请先执行 `git checkout -b release/vX.X` 切出专属的发布分支。
-2. **收集日志**：使用 `git log` 分析自上一个 Tag 至今的所有 Commit。
-3. **生成 Release Notes**：将收集到的 Commit 按类别（Features, Bug Fixes, Chores 等）进行结构化排版，生成中英双语的更新日志。
-4. **自动发布**：使用 `gh release create <tag> --notes-file <notes.md>` 自动推送到 GitHub Releases。
+2. **版本号智能联动 (Version Bump)**：痛点解决！在生成发版日志或打 Tag 之前，你必须主动扫描项目根目录下是否存在常见的包管理器文件（如 `package.json` (Node.js), `Cargo.toml` (Rust), `pyproject.toml` (Python) 等）。如果存在，你必须解析它，并自动将其中的版本号更新为即将发布的 `<tag>` 版本（去除 `v` 前缀），然后单独做一次 Commit（如 `🔖 chore: bump version to X.X.X`）。这一步能让小白体验极致丝滑的发版闭环。
+3. **收集日志**：使用 `git log` 分析自上一个 Tag 至今的所有 Commit。
+4. **生成 Release Notes**：将收集到的 Commit 按类别（Features, Bug Fixes, Chores 等）进行结构化排版，生成中英双语的更新日志。
+5. **自动发布**：使用 `gh release create <tag> --notes-file <notes.md>` 自动推送到 GitHub Releases。
 
 ### 5. 社区规范建立 (Community & Contribution)
 在完善开源项目基础建设时，社区交流规范是至关重要的一环。你需要按以下标准执行：
