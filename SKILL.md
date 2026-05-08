@@ -67,11 +67,12 @@ description: Use when 用户要求初始化开源项目、规范化 GitHub 仓�
 2. **智能 `.gitignore` 配置**：用户只需告诉 skill 项目使用了什么技术栈或工具，自动生成并提交最匹配的 `.gitignore` 文件（可以通过 curl 下载 github/gitignore 模板等方式）。
 3. **开源协议（License）向导**：通过对话式问答（例如：“你想别人商用你的项目吗？”“别人修改后必须开源吗？”），自动推荐并生成对应的 LICENSE 文件，取代简单粗暴的默认 MIT 协议。
 4. **零记忆严格询问 (NO MEMORY Policy)**：HubSage 必须在每次初始化或生成文件时，主动询问用户的配置偏好（如开源协议、语言等）。绝对禁止记忆用户的自定义配置。每次操作都必须从默认选项开始，并向用户确认。
+5. **本地提交流程闭环 (Git Closure)**：所有基础文件生成后，你必须按顺序执行 `git init`、`git add .`、`git commit -m "🎉 init: initial commit"`，并使用 `git branch -M main` 和 `git push -u origin main` 将初始化代码推送到新创建的远端仓库。
 
 ### 4. 版本发布策略 (Release)
 当用户请求“打 Tag”或“发布新版本”时，按照以下顺序自动执行：
 1. **多分支策略 (Branching)**：如果是进行大版本（Major/Minor）更新，请先执行 `git checkout -b release/vX.X` 切出专属的发布分支。
-2. **版本号智能联动 (Version Bump)**：痛点解决！在生成发版日志或打 Tag 之前，你必须主动扫描项目根目录下是否存在常见的包管理器文件（如 `package.json` (Node.js), `Cargo.toml` (Rust), `pyproject.toml` (Python) 等）。如果存在，你必须解析它，并自动将其中的版本号更新为即将发布的 `<tag>` 版本（去除 `v` 前缀），然后单独做一次 Commit（如 `🔖 chore: bump version to X.X.X`）。这一步能让小白体验极致丝滑的发版闭环。
+2. **版本号智能联动 (Version Bump)**：痛点解决！在生成发版日志或打 Tag 之前，你必须主动扫描项目根目录下是否存在常见的包管理器文件（如 `package.json` (Node.js), `Cargo.toml` (Rust), `pyproject.toml` (Python) 等）。如果存在，你必须解析它，并自动将其中的版本号更新为即将发布的 `<tag>` 版本（去除 `v` 前缀），完成后，你必须**先执行 `git add <包管理文件>`**，然后再单独做一次 Commit（例如：`👷 build: bump version to X.X.X` 或 `🚀 release: bump version to X.X.X`）。这一步能让小白体验极致丝滑的发版闭环。
 3. **收集日志**：使用 `git log` 分析自上一个 Tag 至今的所有 Commit。
 4. **生成 Release Notes**：将收集到的 Commit 按类别（Features, Bug Fixes, Chores 等）进行结构化排版，生成中英双语的更新日志。
 5. **自动发布**：使用 `gh release create <tag> --notes-file <notes.md>` 自动推送到 GitHub Releases。
@@ -95,6 +96,7 @@ description: Use when 用户要求初始化开源项目、规范化 GitHub 仓�
    - 监听 `issues` 的 `opened` 事件和 `watch` (Star) 的 `started` 事件。
    - 利用 `actions/github-script` 为新开启的 Issue 自动回复感谢语，并分配 `triage` 基础标签。
 - 屏蔽复杂性：对小白用户完全屏蔽 YAML 缩进和 Actions 配置的复杂机制，直接提供生成好的文件并告知其生效即可。
+3. **资产提交闭环**：YAML 文件生成后，立刻执行 `git add .github/workflows/` 并进行 Commit（如 `👷 build: add greetings workflow`）。
 
 ## ⚠️ 注意事项
 - 不要自作主张地修改业务逻辑代码，只专注于**项目工程化包装**和**版本流转**。�，只专注于**项目工程化包装**和**版本流转**。
