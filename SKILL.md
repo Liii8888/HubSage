@@ -67,7 +67,13 @@ description: Use when 用户要求初始化开源项目、规范化 GitHub 仓�
 
 ### 5. 社区规范建立 (Community & Contribution)
 在完善开源项目基础建设时，社区交流规范是至关重要的一环。你需要按以下标准执行：
-1. **Issue / Pull Request 模板配置**：自动在 `.github/ISSUE_TEMPLATE/` 和 `.github/PULL_REQUEST_TEMPLATE.md` 生成标准化的反馈模板，确保包含明确的 Checklist 和步骤指引。
+1. **Issue / Pull Request 模板智能生成**：
+   自动生成结构完善的反馈模板，直接降低新手的维护焦虑，瞬间赋予仓库顶级的“专业感”(professional look)。你必须：
+   - **执行路径**：首先执行 `mkdir -p .github/ISSUE_TEMPLATE` 创建所需目录。然后，生成具体的 Markdown 文件。
+   - **标准模板规范**：
+     - **Bug Report** (`.github/ISSUE_TEMPLATE/bug_report.md`): 必须包含标准的 YAML Frontmatter（如 `name:`, `about:`, `title:`, `labels:`, `assignees:` 等）。正文部分需包含清晰的复现步骤、预期行为、截图和运行环境信息。
+     - **Feature Request** (`.github/ISSUE_TEMPLATE/feature_request.md`): 同样必须包含带有 `name:`, `about:`, `title:`, `labels:`, `assignees:` 的 Frontmatter。正文需引导用户描述痛点、期望的解决方案和可行的替代方案。
+     - **Pull Request Template** (`.github/PULL_REQUEST_TEMPLATE.md`): 正文需包含详细的变更说明、相关联的 Issue 链接、以及带有 `[ ]` 复选框的自检任务清单 (Checklist)。
 2. **社区规范文件生成**：自动在项目根目录生成 `CODE_OF_CONDUCT.md`（社区行为准则），补全开源项目的最后一块拼图，推荐使用业界标准的 Contributor Covenant 模板。
 
 ### 6. 自动化运转 (Basic Automation)
