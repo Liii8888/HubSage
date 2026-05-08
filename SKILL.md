@@ -53,9 +53,10 @@ description: Use when 用户要求初始化开源项目、规范化 GitHub 仓�
 - **对内给 Agent 看的提示词（如 `SKILL.md`）**：表达可以更加随意和自由，允许使用有助于强化大模型角色扮演的设定词汇，以获得更好的指令依从性。
 
 ### 3. 项目初始化标准 (Initialization)
-在用户要求**“初始化项目”**或接手一个全新的、裸露的仓库时，必须执行以下基建检查：
-1. **生成 `.gitignore`**：检测代码根目录是否缺少 `.gitignore` 文件。如果缺少，请根据项目的语言栈自动生成一份标准的 `.gitignore`（可以参考 github/gitignore 模板）。
-2. **默认开源协议 (License)**：必须自动在根目录生成标准的 **MIT License** 文件（除非用户明确指定其他协议）。
+在用户要求**“初始化项目”**或接手一个全新的、裸露的仓库时，必须通过对话引导用户完成以下高质量的基建配置：
+1. **一键标准化建库**：引导用户输入简单的项目描述，自动通过 API (如 `gh repo create`) 创建仓库（Public/Private），并自动配置好合适的 Description 和 Topics（标签），提高项目的 SEO 曝光度。
+2. **智能 `.gitignore` 配置**：用户只需告诉 skill 项目使用了什么技术栈或工具，自动生成并提交最匹配的 `.gitignore` 文件（可以通过 curl 下载 github/gitignore 模板等方式）。
+3. **开源协议（License）向导**：通过对话式问答（例如：“你想别人商用你的项目吗？”“别人修改后必须开源吗？”），自动推荐并生成对应的 LICENSE 文件，取代简单粗暴的默认 MIT 协议。
 
 ### 4. 版本发布策略 (Release)
 当用户请求“打 Tag”或“发布新版本”时，按照以下顺序自动执行：
@@ -63,6 +64,19 @@ description: Use when 用户要求初始化开源项目、规范化 GitHub 仓�
 2. **收集日志**：使用 `git log` 分析自上一个 Tag 至今的所有 Commit。
 3. **生成 Release Notes**：将收集到的 Commit 按类别（Features, Bug Fixes, Chores 等）进行结构化排版，生成中英双语的更新日志。
 4. **自动发布**：使用 `gh release create <tag> --notes-file <notes.md>` 自动推送到 GitHub Releases。
+
+### 5. 社区规范建立 (Community & Contribution)
+在完善开源项目基础建设时，社区交流规范是至关重要的一环。你需要按以下标准执行：
+1. **Issue / Pull Request 模板配置**：自动在 `.github/ISSUE_TEMPLATE/` 和 `.github/PULL_REQUEST_TEMPLATE.md` 生成标准化的反馈模板，确保包含明确的 Checklist 和步骤指引。
+2. **社区规范文件生成**：自动在项目根目录生成 `CODE_OF_CONDUCT.md`（社区行为准则），补全开源项目的最后一块拼图，推荐使用业界标准的 Contributor Covenant 模板。
+
+### 6. 自动化运转 (Basic Automation)
+作为开源项目维护者，你需要帮助新手用户自动处理一些社区交互。当用户需要配置自动化时，请遵循以下 SOP：
+1. **生成工作流文件**：自动在项目根目录创建 `.github/workflows/greetings.yml`。
+2. **编写 YAML 逻辑**：
+   - 监听 `issues` 的 `opened` 事件和 `watch` (Star) 的 `started` 事件。
+   - 利用 `actions/github-script` 为新开启的 Issue 自动回复感谢语，并分配 `triage` 基础标签。
+3. **屏蔽复杂性**：对小白用户完全屏蔽 YAML 缩进和 Actions 配置的复杂机制，直接提供生成好的文件并告知其生效即可。
 
 ## ⚠️ 注意事项
 - 不要自作主张地修改业务逻辑代码，只专注于**项目工程化包装**和**版本流转**。
