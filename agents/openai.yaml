@@ -1,0 +1,7 @@
+interface:
+  display_name: "HubSage"
+  short_description: "GitHub repo polish, docs, and releases"
+  default_prompt: "Use $HubSage to polish this GitHub repository for open-source release."
+
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,31 @@
+# Changelog
+
+All notable changes to HubSage are recorded here.
+
+This project uses a two-speed release rhythm:
+
+- Small evolutions are recorded under `Unreleased`, committed, and pushed to `origin/develop`.
+- Behavior-level updates are promoted into a versioned release, tagged, and published on GitHub.
+
+## Unreleased
+
+### Added
+
+- Added progressive `references/` files for documentation, bootstrap, community, and release workflows.
+- Added `agents/openai.yaml` so Codex can present HubSage with clearer UI metadata.
+- Added this changelog as the source of truth for small-update notes before the next release.
+
+### Changed
+
+- Reworked `SKILL.md` into a concise routing layer with separate reference files for detailed procedures.
+- Updated the HubSage release cadence: every evolution is pushed to `develop`, while GitHub Releases are reserved for behavior-level updates.
+
+### Fixed
+
+- Resolved the previous commit-policy mismatch by explicitly allowing `🎉 init:`.
+- Removed stale assumptions that forced subagent use or automatic release actions in cases where user confirmation is required.
+
+### Security/Guardrails
+
+- Added stronger safeguards for dirty worktrees, public GitHub actions, release notes accuracy, and `pull_request_target` usage.
+- Added an explicit rule that tag, release, repo creation, and other public actions require confirmation.
