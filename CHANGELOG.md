@@ -17,11 +17,14 @@ This project uses a two-speed release rhythm:
 
 ### Changed
 
+- Refined `README.md` into an editorial maintainer-style repository front door with a stronger first screen, capability matrix, repository map, and tighter release-rhythm explanation.
+- Reworked `CONTRIBUTING.md` around Codex installation, branch rhythm, validation checks, and staged-file hygiene.
 - Reworked `SKILL.md` into a concise routing layer with separate reference files for detailed procedures.
 - Updated the HubSage release cadence: every evolution is pushed to `develop`, while GitHub Releases are reserved for behavior-level updates.
 
 ### Fixed
 
+- Replaced the stale Gemini skill install path in contributor setup with the current Codex path.
 - Resolved the previous commit-policy mismatch by explicitly allowing `🎉 init:`.
 - Removed stale assumptions that forced subagent use or automatic release actions in cases where user confirmation is required.
 

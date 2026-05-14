@@ -1,91 +1,62 @@
+<div align="center">
+
 # HubSage
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
+**A maintainer-grade Agent Skill for GitHub repositories that need to look trustworthy before they ask for trust.**
 
-[English](#english) | [中文](#chinese)
+一个面向 GitHub / 开源仓库维护的 Agent Skill：把 README、贡献流程、提交规范、发布节奏和 GitHub 护栏做稳。
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-c9a227.svg)](https://opensource.org/licenses/MIT)
+[![Release cadence: develop first](https://img.shields.io/badge/cadence-develop%20first-2f6f73.svg)](CHANGELOG.md)
+[![Skill source](https://img.shields.io/badge/source-Codex%20Skill-3b3f46.svg)](SKILL.md)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-6f8f72.svg)](CONTRIBUTING.md)
+
+[Overview](#overview) · [Capability Matrix](#capability-matrix) · [Architecture](#architecture) · [Install](#install) · [Release Rhythm](#release-rhythm)
+
+</div>
 
 ---
 
-<a name="chinese"></a>
-## 简介 / Introduction
+## Overview
 
-HubSage 是一个面向 GitHub 与开源项目维护的 Agent Skill。它帮助具备 Shell 执行能力的 AI Agent 处理仓库初始化、文档标准化、社区模板、提交规范、版本发布和 GitHub Release 等维护工作。
+HubSage is a GitHub maintenance skill for shell-capable AI agents. It does not try to write your product for you. It shapes the work around the product: repository bootstrap, documentation polish, community templates, commit hygiene, release notes, and confirmation gates before public GitHub actions.
 
-它的目标不是替代业务开发，而是把项目交付前后那些容易被忽略的工程化细节做稳：可读的 README、清楚的贡献流程、可追踪的提交历史、可信的发布说明，以及对公开 GitHub 操作的确认护栏。
+HubSage 是一个给 Agent 使用的仓库维护技能。它不接管业务代码，而是把项目对外展示与协作流转做得更可信：初始化、文档、模板、提交、发版、变更记录，以及公开操作前的确认护栏。
 
-## 核心能力 / Core Capabilities
+> The promise is simple: make a repository easier to trust, easier to contribute to, and harder to release carelessly.
 
-- **仓库画像与安全边界**：开始前检查分支、远端、脏工作区、最近 tag、包管理文件和 GitHub CLI 状态。
-- **文档与项目门面**：生成或润色中英双语 `README.md`、`CONTRIBUTING.md`、徽章和 Mermaid 架构图。
-- **社区协作模板**：维护 Issue/PR 模板、行为准则和基础 GitHub Actions 建议。
-- **提交与发布流转**：使用 Gitmoji + Conventional Commits，生成 release notes，并在确认后执行 tag 或 GitHub Release。
-- **小更新记录机制**：每次进化先写入 `CHANGELOG.md` 的 `Unreleased`，推送 `develop`；行为级大更新再发布正式版本。
+## Capability Matrix
 
-## 架构 / Architecture
+| Area | What HubSage handles | Guardrail |
+| --- | --- | --- |
+| Repository preflight | Branch, remote, dirty worktree, recent tags, package files, `gh` status | Never hides local changes or unknown state |
+| Documentation | Bilingual README, CONTRIBUTING, badges, Mermaid diagrams | No fake badges, claims, or unverified commands |
+| Community files | Issue templates, PR template, conduct guidance, lightweight Actions | Keeps Actions permissions narrow |
+| Commit hygiene | Gitmoji + Conventional Commits | Rejects vague commit messages and mixed-topic commits |
+| Release flow | Version bump notes, changelog, tag, GitHub Release | Requires confirmation before public actions |
+| Skill evolution | Installed-copy sync, `CHANGELOG.md#Unreleased`, `origin/develop` pushes | Formal releases only for behavior-level changes |
+
+## Architecture
 
 ```mermaid
-graph TD
-    A[User request] --> B[HubSage SKILL.md routing layer]
-    B --> C[references/documentation.md]
-    B --> D[references/bootstrap.md]
-    B --> E[references/community.md]
-    B --> F[references/release.md]
-    B --> G[Commit policy and guardrails]
-    C --> H[Polished repository]
+flowchart LR
+    A["User intent"] --> B["HubSage routing layer<br/>SKILL.md"]
+    B --> C["Docs<br/>references/documentation.md"]
+    B --> D["Bootstrap<br/>references/bootstrap.md"]
+    B --> E["Community<br/>references/community.md"]
+    B --> F["Release<br/>references/release.md"]
+    B --> G["Commit policy<br/>and guardrails"]
+    C --> H["Trustworthy repository"]
     D --> H
     E --> H
     F --> H
     G --> H
-    I[Local installed copy] --> J[Project source repository]
-    J --> K[origin/develop]
-    K --> L[Versioned GitHub Release]
+    I["Installed runtime copy<br/>~/.codex/skills/HubSage"] --> J["Source repository<br/>Projects/HubSage"]
+    J --> K["origin/develop"]
+    K --> L["Versioned release"]
 ```
 
-## 快速开始 / Quick Start
-
-把仓库作为 HubSage 的可复现来源，然后将 skill 文件安装到 Codex 的技能目录：
-
-```bash
-git clone https://github.com/Liii8888/HubSage.git
-mkdir -p ~/.codex/skills/HubSage
-cp -R HubSage/SKILL.md HubSage/references HubSage/agents ~/.codex/skills/HubSage/
-```
-
-使用时可以直接向 Agent 说明目标：
-
-```text
-使用 HubSage 规范化当前 GitHub 仓库，并更新 README、CONTRIBUTING 和发布节奏。
-```
-
-## 维护节奏 / Maintenance Rhythm
-
-- 小更新：同步安装版到本仓库，记录到 `CHANGELOG.md` 的 `Unreleased`，提交并推送 `origin/develop`。
-- 大更新：当 skill 行为、文件结构、发布流程、安全边界或用户可见能力发生变化时，创建 release 分支，固化 changelog，合并到 `main`，打 tag，并发布 GitHub Release。
-- 默认下一次正式版本为 `v1.3.0`，因为当前分层 reference、发布护栏和 Codex UI metadata 已经属于行为级升级。
-
-## 参与贡献 / Contributing
-
-欢迎提交 PR。请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，并在变更 skill 行为时同步更新 [CHANGELOG.md](CHANGELOG.md)。
-
----
-
-<a name="english"></a>
-## Introduction
-
-HubSage is an Agent Skill for GitHub and open-source repository maintenance. It helps shell-capable AI agents handle repository bootstrap, documentation polish, community templates, commit hygiene, version flow, and GitHub Releases.
-
-Its purpose is not to replace product development. HubSage focuses on the maintenance work around a project: readable README files, clear contribution paths, traceable commit history, accurate release notes, and confirmation guardrails for public GitHub actions.
-
-## Core Capabilities
-
-- **Repository preflight and guardrails**: Checks branch, remote, dirty worktree state, recent tags, package files, and GitHub CLI status before public actions.
-- **Documentation polish**: Creates or improves bilingual `README.md`, `CONTRIBUTING.md`, badges, and Mermaid architecture diagrams.
-- **Community templates**: Maintains Issue/PR templates, code-of-conduct guidance, and basic GitHub Actions recommendations.
-- **Commit and release flow**: Uses Gitmoji + Conventional Commits, prepares release notes, and performs tags or GitHub Releases after confirmation.
-- **Small-update tracking**: Records each evolution in the `Unreleased` section of `CHANGELOG.md`, pushes `develop`, and reserves formal releases for behavior-level updates.
-
-## Quick Start
+## Install
 
 Use this repository as the reproducible source for the skill, then install it into Codex:
 
@@ -95,18 +66,41 @@ mkdir -p ~/.codex/skills/HubSage
 cp -R HubSage/SKILL.md HubSage/references HubSage/agents ~/.codex/skills/HubSage/
 ```
 
-Then invoke it with a prompt such as:
+Then invoke it naturally:
 
 ```text
-Use HubSage to standardize the current GitHub repository and update README, CONTRIBUTING, and the release cadence.
+使用 HubSage 规范化当前 GitHub 仓库，并更新 README、CONTRIBUTING 和发布节奏。
 ```
 
-## Maintenance Rhythm
+Or in English:
 
-- Small updates: sync the installed copy back to this repository, record changes under `CHANGELOG.md#Unreleased`, commit, and push `origin/develop`.
-- Major/minor releases: when skill behavior, file structure, release flow, safety boundaries, or visible capabilities change, create a release branch, freeze the changelog, merge to `main`, tag, and publish a GitHub Release.
-- The next formal release defaults to `v1.3.0` because the current progressive references, release guardrails, and Codex UI metadata are behavior-level upgrades.
+```text
+Use HubSage to standardize this GitHub repository and prepare the next release notes.
+```
+
+## Release Rhythm
+
+HubSage uses a two-speed maintenance model:
+
+| Update type | Destination | Release action |
+| --- | --- | --- |
+| Small evolution | Record under `CHANGELOG.md#Unreleased`, commit, push `origin/develop` | No tag, no GitHub Release |
+| Behavior-level update | Promote `Unreleased` into a dated version section | Release branch, annotated tag, GitHub Release |
+
+The next formal release defaults to `v1.3.0`, because the current progressive references, release guardrails, and Codex UI metadata are behavior-level upgrades.
+
+## Repository Map
+
+```text
+HubSage/
+├── SKILL.md                  # Routing layer and operating rules
+├── references/               # Progressive workflow details
+├── agents/openai.yaml        # Codex UI metadata
+├── CHANGELOG.md              # Small-update ledger and release source
+├── CONTRIBUTING.md           # Contribution and validation guide
+└── README.md                 # Public-facing project doorway
+```
 
 ## Contributing
 
-PRs are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md), and update [CHANGELOG.md](CHANGELOG.md) whenever a change affects HubSage behavior.
+PRs are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md), keep changes scoped, and update [CHANGELOG.md](CHANGELOG.md) whenever behavior, release flow, public docs, or safety boundaries change.

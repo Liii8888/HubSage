@@ -1,47 +1,81 @@
-# 🤝 贡献指南 (Contributing Guidelines)
+# Contributing to HubSage
 
-[English](#english) | [中文](#chinese)
+Thanks for helping make HubSage a sharper maintainer skill.
 
-<a name="chinese"></a>
-## 🇨🇳 中文
+感谢你参与 HubSage。这个项目最看重两件事：仓库维护体验是否更稳，以及 Agent 执行时是否更不容易误伤。
 
-感谢你考虑为 HubSage 做出贡献！
+## Working Model
 
-### 🌳 分支规范
-- 主分支为 `main`。
-- 新功能开发请基于 `main` 切出 `feat/xxx` 分支。
-- 修复 Bug 请切出 `fix/xxx` 分支。
+| Branch | Purpose |
+| --- | --- |
+| `main` | Latest formal release |
+| `develop` | Ongoing small evolutions |
+| `release/vX.Y.Z` | Release stabilization |
+| `feat/<topic>` | New capability or behavior |
+| `fix/<topic>` | Bug fix or instruction correction |
+| `docs/<topic>` | Documentation-only work |
 
-### 📝 提交规范
-我们严格遵循 **Gitmoji + Conventional Commits** 规范。提交示例：
-- `✨ feat: 增加新功能`
-- `🐛 fix: 修复崩溃问题`
-- `📝 docs: 更新文档`
+Small changes land on `develop` first. Formal GitHub Releases are reserved for behavior-level updates.
 
-### 🛠 本地开发与测试
-1. Clone 仓库到本地。
-2. 放入 `~/.gemini/skills/HubSage` 目录进行测试。
-3. 验证通过后提交 PR。
+## Local Setup
 
----
+Clone the repository and install the skill into Codex:
 
-<a name="english"></a>
-## 🇺🇸 English
+```bash
+git clone https://github.com/Liii8888/HubSage.git
+cd HubSage
+mkdir -p ~/.codex/skills/HubSage
+cp -R SKILL.md references agents ~/.codex/skills/HubSage/
+```
 
-Thank you for considering contributing to HubSage!
+If you are testing with another Agent runtime, keep the repository source unchanged and adapt only the local install path.
 
-### 🌳 Branching Strategy
-- The primary branch is `main`.
-- For new features, please branch off `main` to a `feat/xxx` branch.
-- For bug fixes, use a `fix/xxx` branch.
+## Commit Convention
 
-### 📝 Commit Conventions
-We strictly follow **Gitmoji + Conventional Commits**. Examples:
-- `✨ feat: Add new feature`
-- `🐛 fix: Resolve crash`
-- `📝 docs: Update documentation`
+Use Gitmoji + Conventional Commits:
 
-### 🛠 Local Development & Testing
-1. Clone the repository locally.
-2. Place it in the `~/.gemini/skills/HubSage` directory to test.
-3. Submit a PR once validated.
+```text
+✨ feat(skill): add release-note routing
+🐛 fix(docs): correct Codex install path
+📝 docs(readme): refine capability matrix
+🔧 chore(release): update changelog ledger
+```
+
+Keep one topic per commit. Avoid vague messages such as `update`, `misc`, or `fix stuff`.
+
+## Change Checklist
+
+Before opening a PR or pushing a small evolution:
+
+- [ ] `SKILL.md` frontmatter has `name` and `description`.
+- [ ] Every `references/*.md` path mentioned in `SKILL.md` exists.
+- [ ] `agents/openai.yaml` still describes the current skill.
+- [ ] `CHANGELOG.md#Unreleased` records the change.
+- [ ] Public docs do not promise unverified commands, badges, or release status.
+- [ ] No unrelated drafts, article exports, or generated files are included.
+
+## Validation
+
+Run lightweight checks before committing:
+
+```bash
+git diff --check
+```
+
+Also review the staged file list:
+
+```bash
+git diff --cached --name-only
+```
+
+For release work, verify `gh auth status` before tag or GitHub Release creation.
+
+## Pull Requests
+
+PRs should include:
+
+- A short summary of the behavior or documentation change.
+- The validation performed.
+- A note about whether the change should stay in `Unreleased` or become part of the next formal version.
+
+HubSage should stay practical, auditable, and calm under pressure. When in doubt, prefer smaller instructions, clearer guardrails, and fewer assumptions.
