@@ -9,7 +9,13 @@ This project uses a two-speed release rhythm:
 
 ## Unreleased
 
-No unreleased changes yet.
+### Added
+
+- Added `assets/hubsage-cover.svg` as a custom visual identity asset for the repository front page.
+
+### Changed
+
+- Reworked `README.md` into a stronger terminal-editorial front page with a custom cover image, sharper positioning, and a more distinctive maintainer-tool voice.
 
 ## v1.3.0 - 2026-05-17
 

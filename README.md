@@ -1,64 +1,68 @@
 <div align="center">
+  <img src="assets/hubsage-cover.svg" alt="HubSage — repository craft before release theatre" width="100%" />
+</div>
 
-# HubSage
+<div align="center">
 
-**A maintainer-grade Agent Skill for GitHub repositories that need to look trustworthy before they ask for trust.**
+[![License: MIT](https://img.shields.io/badge/license-MIT-F2D98A.svg)](https://opensource.org/licenses/MIT)
+[![Latest Release](https://img.shields.io/badge/release-v1.3.0-7FF2B0.svg)](https://github.com/Liii8888/HubSage/releases/tag/v1.3.0)
+[![Codex Skill](https://img.shields.io/badge/Codex-Skill-151C25.svg)](SKILL.md)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-B88A35.svg)](CONTRIBUTING.md)
 
-一个面向 GitHub / 开源仓库维护的 Agent Skill：把 README、贡献流程、提交规范、发布节奏和 GitHub 护栏做稳。
+**HubSage makes a repository feel maintained before anybody has to ask whether it is.**<br>
+它不是写业务代码的助手，而是开源仓库的门面、秩序和发布纪律。
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-c9a227.svg)](https://opensource.org/licenses/MIT)
-[![Release cadence: develop first](https://img.shields.io/badge/cadence-develop%20first-2f6f73.svg)](CHANGELOG.md)
-[![Skill source](https://img.shields.io/badge/source-Codex%20Skill-3b3f46.svg)](SKILL.md)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-6f8f72.svg)](CONTRIBUTING.md)
-
-[Overview](#overview) · [Capability Matrix](#capability-matrix) · [Architecture](#architecture) · [Install](#install) · [Release Rhythm](#release-rhythm)
+[Install](#install) · [What It Changes](#what-it-changes) · [System Map](#system-map) · [Release Discipline](#release-discipline)
 
 </div>
 
 ---
 
-## Overview
+## What It Changes
 
-HubSage is a GitHub maintenance skill for shell-capable AI agents. It does not try to write your product for you. It shapes the work around the product: repository bootstrap, documentation polish, community templates, commit hygiene, release notes, and confirmation gates before public GitHub actions.
+Most repositories do not fail because the code is impossible to understand. They fail because everything around the code feels unfinished: a thin README, loose commits, missing release notes, vague contribution rules, and public GitHub actions done a little too casually.
 
-HubSage 是一个给 Agent 使用的仓库维护技能。它不接管业务代码，而是把项目对外展示与协作流转做得更可信：初始化、文档、模板、提交、发版、变更记录，以及公开操作前的确认护栏。
+HubSage is the maintainer ritual around that problem. It gives an AI agent a strict, tasteful workflow for making GitHub repositories presentable, auditable, and harder to release carelessly.
 
-> The promise is simple: make a repository easier to trust, easier to contribute to, and harder to release carelessly.
+| Without HubSage | With HubSage |
+| --- | --- |
+| README as an afterthought | README as the public doorway |
+| `update` / `misc` commits | Gitmoji + Conventional Commits |
+| Release notes written from memory | Release notes derived from actual history |
+| Public actions by impulse | Push, tag, repo creation, and release behind confirmation |
+| One long prompt file | Routed skill with focused references |
 
-## Capability Matrix
+## The Maintainer Stack
 
-| Area | What HubSage handles | Guardrail |
+| Layer | File | Job |
 | --- | --- | --- |
-| Repository preflight | Branch, remote, dirty worktree, recent tags, package files, `gh` status | Never hides local changes or unknown state |
-| Documentation | Bilingual README, CONTRIBUTING, badges, Mermaid diagrams | No fake badges, claims, or unverified commands |
-| Community files | Issue templates, PR template, conduct guidance, lightweight Actions | Keeps Actions permissions narrow |
-| Commit hygiene | Gitmoji + Conventional Commits | Rejects vague commit messages and mixed-topic commits |
-| Release flow | Version bump notes, changelog, tag, GitHub Release | Requires confirmation before public actions |
-| Skill evolution | Installed-copy sync, `CHANGELOG.md#Unreleased`, `origin/develop` pushes | Formal releases only for behavior-level changes |
+| Command surface | `SKILL.md` | Routes requests, defines guardrails, keeps the agent disciplined |
+| Documentation craft | `references/documentation.md` | README, CONTRIBUTING, badges, architecture diagrams |
+| Repository bootstrap | `references/bootstrap.md` | `.gitignore`, license guidance, first commit, remote setup |
+| Community posture | `references/community.md` | Issue templates, PR templates, conduct guidance, safe Actions |
+| Release discipline | `references/release.md` | Version notes, changelog, tags, GitHub Releases |
+| Codex presentation | `agents/openai.yaml` | UI metadata for the installed skill |
 
-## Architecture
+## System Map
 
 ```mermaid
 flowchart LR
-    A["User intent"] --> B["HubSage routing layer<br/>SKILL.md"]
-    B --> C["Docs<br/>references/documentation.md"]
-    B --> D["Bootstrap<br/>references/bootstrap.md"]
-    B --> E["Community<br/>references/community.md"]
-    B --> F["Release<br/>references/release.md"]
-    B --> G["Commit policy<br/>and guardrails"]
-    C --> H["Trustworthy repository"]
-    D --> H
-    E --> H
-    F --> H
-    G --> H
-    I["Installed runtime copy<br/>~/.codex/skills/HubSage"] --> J["Source repository<br/>Projects/HubSage"]
-    J --> K["origin/develop"]
-    K --> L["Versioned release"]
+    intent["user intent"] --> router["SKILL.md<br/>routing layer"]
+    router --> docs["documentation<br/>public face"]
+    router --> boot["bootstrap<br/>repo spine"]
+    router --> community["community<br/>collaboration"]
+    router --> release["release<br/>version line"]
+    router --> guard["guardrails<br/>confirmation gates"]
+    docs --> repo["trustworthy repository"]
+    boot --> repo
+    community --> repo
+    release --> repo
+    guard --> repo
 ```
 
 ## Install
 
-Use this repository as the reproducible source for the skill, then install it into Codex:
+Install HubSage as a Codex skill:
 
 ```bash
 git clone https://github.com/Liii8888/HubSage.git
@@ -66,33 +70,32 @@ mkdir -p ~/.codex/skills/HubSage
 cp -R HubSage/SKILL.md HubSage/references HubSage/agents ~/.codex/skills/HubSage/
 ```
 
-Then invoke it naturally:
+Then speak to the agent like a maintainer, not a config file:
 
 ```text
-使用 HubSage 规范化当前 GitHub 仓库，并更新 README、CONTRIBUTING 和发布节奏。
+使用 HubSage 规范化当前 GitHub 仓库，并准备下一版 Release Notes。
 ```
-
-Or in English:
 
 ```text
-Use HubSage to standardize this GitHub repository and prepare the next release notes.
+Use HubSage to polish this repository and prepare a safe release flow.
 ```
 
-## Release Rhythm
+## Release Discipline
 
-HubSage uses a two-speed maintenance model:
+HubSage uses a two-speed release model:
 
-| Update type | Destination | Release action |
+| Change | Where it goes | What happens |
 | --- | --- | --- |
-| Small evolution | Record under `CHANGELOG.md#Unreleased`, commit, push `origin/develop` | No tag, no GitHub Release |
-| Behavior-level update | Promote `Unreleased` into a dated version section | Release branch, annotated tag, GitHub Release |
+| Small evolution | `CHANGELOG.md#Unreleased` and `origin/develop` | Recorded, pushed, not released |
+| Behavior-level update | Versioned changelog section | Release branch, annotated tag, GitHub Release |
 
-The latest formal release is `v1.3.0`, which promotes the progressive references, release guardrails, Codex UI metadata, changelog ledger, and editorial repository presentation into the public release line.
+Latest release: [`v1.3.0`](https://github.com/Liii8888/HubSage/releases/tag/v1.3.0).
 
-## Repository Map
+## Repository Shape
 
 ```text
 HubSage/
+├── assets/                   # Visual identity for the repository
 ├── SKILL.md                  # Routing layer and operating rules
 ├── references/               # Progressive workflow details
 ├── agents/openai.yaml        # Codex UI metadata
@@ -103,4 +106,4 @@ HubSage/
 
 ## Contributing
 
-PRs are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md), keep changes scoped, and update [CHANGELOG.md](CHANGELOG.md) whenever behavior, release flow, public docs, or safety boundaries change.
+Keep changes narrow, auditable, and recorded. If a change alters behavior, release flow, public docs, or safety boundaries, update [CHANGELOG.md](CHANGELOG.md) before opening the PR.

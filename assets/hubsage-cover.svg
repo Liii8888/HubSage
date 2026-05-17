@@ -1,0 +1,69 @@
+<svg width="1280" height="520" viewBox="0 0 1280 520" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">HubSage repository cover</title>
+  <desc id="desc">A dark editorial banner for HubSage with terminal motifs, release lines, and maintainer-grade visual language.</desc>
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="1280" y2="520" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0B0F14"/>
+      <stop offset="0.56" stop-color="#111720"/>
+      <stop offset="1" stop-color="#0A0D11"/>
+    </linearGradient>
+    <linearGradient id="brass" x1="145" y1="64" x2="744" y2="423" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F2D98A"/>
+      <stop offset="0.45" stop-color="#B88A35"/>
+      <stop offset="1" stop-color="#6D5123"/>
+    </linearGradient>
+    <linearGradient id="mint" x1="846" y1="74" x2="1172" y2="406" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#B9FFD7"/>
+      <stop offset="1" stop-color="#45C782"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" stroke="#D7C58A" stroke-opacity="0.08" stroke-width="1"/>
+    </pattern>
+    <filter id="grain">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer>
+        <feFuncA type="table" tableValues="0 0.12"/>
+      </feComponentTransfer>
+      <feBlend mode="soft-light" in2="SourceGraphic"/>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="520" rx="28" fill="url(#paper)"/>
+  <rect width="1280" height="520" rx="28" fill="url(#grid)"/>
+  <rect x="1" y="1" width="1278" height="518" rx="27" stroke="#E8D38C" stroke-opacity="0.22" stroke-width="2"/>
+  <g filter="url(#grain)">
+    <path d="M97 438C163 309 249 155 403 93C552 33 668 76 780 134C913 203 1020 199 1187 68" stroke="#F0D37B" stroke-opacity="0.16" stroke-width="82" stroke-linecap="round"/>
+  </g>
+
+  <text x="72" y="91" fill="#7FF2B0" font-family="SFMono-Regular, ui-monospace, Menlo, Consolas, monospace" font-size="18" letter-spacing="4">GITHUB MAINTAINER SKILL</text>
+  <text x="70" y="232" fill="#F4E8C5" font-family="Georgia, 'Times New Roman', serif" font-size="118" font-weight="700">HubSage</text>
+  <text x="78" y="284" fill="#D8CFAF" font-family="SFMono-Regular, ui-monospace, Menlo, Consolas, monospace" font-size="24">repository craft before release theatre</text>
+
+  <g transform="translate(78 336)">
+    <rect x="0" y="0" width="156" height="38" rx="19" fill="#111821" stroke="#E8D38C" stroke-opacity="0.38"/>
+    <text x="22" y="25" fill="#F2D98A" font-family="SFMono-Regular, ui-monospace, Menlo, Consolas, monospace" font-size="15">preflight</text>
+    <rect x="174" y="0" width="138" height="38" rx="19" fill="#111821" stroke="#7FF2B0" stroke-opacity="0.38"/>
+    <text x="197" y="25" fill="#B9FFD7" font-family="SFMono-Regular, ui-monospace, Menlo, Consolas, monospace" font-size="15">docs</text>
+    <rect x="330" y="0" width="148" height="38" rx="19" fill="#111821" stroke="#E8D38C" stroke-opacity="0.38"/>
+    <text x="353" y="25" fill="#F2D98A" font-family="SFMono-Regular, ui-monospace, Menlo, Consolas, monospace" font-size="15">release</text>
+  </g>
+
+  <g transform="translate(770 105)">
+    <rect x="0" y="0" width="420" height="296" rx="22" fill="#080B0F" stroke="#E8D38C" stroke-opacity="0.34"/>
+    <rect x="20" y="21" width="380" height="40" rx="13" fill="#151C25"/>
+    <circle cx="44" cy="41" r="6" fill="#F87171"/>
+    <circle cx="66" cy="41" r="6" fill="#F2D98A"/>
+    <circle cx="88" cy="41" r="6" fill="#7FF2B0"/>
+    <text x="31" y="101" fill="#7FF2B0" font-family="SFMono-Regular, ui-monospace, Menlo, Consolas, monospace" font-size="17">$ hubsage preflight</text>
+    <text x="31" y="137" fill="#EDE4C8" font-family="SFMono-Regular, ui-monospace, Menlo, Consolas, monospace" font-size="17">branch  develop</text>
+    <text x="31" y="173" fill="#EDE4C8" font-family="SFMono-Regular, ui-monospace, Menlo, Consolas, monospace" font-size="17">docs    bilingual</text>
+    <text x="31" y="209" fill="#EDE4C8" font-family="SFMono-Regular, ui-monospace, Menlo, Consolas, monospace" font-size="17">release guarded</text>
+    <path d="M31 241H389" stroke="url(#mint)" stroke-width="2" stroke-dasharray="6 8"/>
+    <text x="31" y="271" fill="#F2D98A" font-family="SFMono-Regular, ui-monospace, Menlo, Consolas, monospace" font-size="17">trust: ready</text>
+  </g>
+
+  <g transform="translate(1135 48) rotate(90)">
+    <text fill="#F2D98A" fill-opacity="0.46" font-family="SFMono-Regular, ui-monospace, Menlo, Consolas, monospace" font-size="14" letter-spacing="6">TRUST BEFORE TRAFFIC</text>
+  </g>
+</svg>
