@@ -17,6 +17,7 @@ This project uses a two-speed release rhythm:
 
 ### Changed
 
+- Expanded `README.md` into paired Chinese/English sections so the public project introduction is genuinely bilingual instead of English-led with partial translation.
 - Refined `README.md` into an editorial maintainer-style repository front door with a stronger first screen, capability matrix, repository map, and tighter release-rhythm explanation.
 - Reworked `CONTRIBUTING.md` around Codex installation, branch rhythm, validation checks, and staged-file hygiene.
 - Reworked `SKILL.md` into a concise routing layer with separate reference files for detailed procedures.
