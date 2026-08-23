@@ -1,7 +1,6 @@
 interface:
-  display_name: "HubSage"
-  short_description: "GitHub repo polish, docs, and releases"
-  default_prompt: "Use $HubSage to polish this GitHub repository for open-source release."
-
+  display_name: "Private GitHub Pro Review"
+  short_description: "Publish private repo reviews through GPT Pro"
+  default_prompt: "Use $private-github-pro-review to publish this repository to its persistent private review mirror and run a GPT Pro review."
 policy:
-  allow_implicit_invocation: true
+  allow_implicit_invocation: false

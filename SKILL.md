@@ -1,80 +1,287 @@
 ---
-name: HubSage
-description: Use when 用户要初始化、规范化或发布 GitHub/开源仓库，包括 README、CONTRIBUTING、社区模板、提交信息、tag、GitHub Release、基础 Actions 或仓库工程化包装。
+name: private-github-pro-review
+description: "Use when the user explicitly asks to back up a local Git repository with its branches, tags, and history to one persistent private GitHub repository, then send an unchanged prompt to ChatGPT Pro or ChatGPT Pro with Deep Research, wait without repeated page scraping, and save the final answer."
 ---
 
-# HubSage
+# Private GitHub Pro Review
 
-HubSage 是面向开源/GitHub 仓库的资深维护者工作流。目标是让项目“能被信任”：结构清楚、文档可跑、提交可追踪、发布可复现，同时不碰无关业务逻辑。
+Back up one local Git repository to one long-lived private GitHub repository,
+bind that exact source in a fresh saved ChatGPT conversation, submit the user's
+unchanged prompt once, and collect the final answer once.
 
-## Operating Rules
+## Hard Boundaries
 
-- 默认用中文和用户沟通；面向仓库外部读者的核心文档默认中英双语，除非项目已有明确惯例。
-- 只处理工程化包装、文档、社区协作、发布流转和 GitHub 卫生；不要主动改业务逻辑代码，除非用户明确要求或版本/文档元数据必须同步。
-- 开工先画像：确认当前目录、`git status --short`、分支、远端、最近 tag、包管理文件、现有 `README`/`LICENSE`/`.github` 状态。
-- 尊重脏工作区。不要覆盖用户改动；若要 commit/push/tag/release，先说明将包含哪些文件。
-- GitHub 操作用 `git` 与 `gh`。做 repo create、push、tag、release 等公开动作前，先检查 `gh --version` 与 `gh auth status`。
-- 如果 `gh` 缺失或未授权，不要硬失败；给出温和指引：安装 `gh`，运行 `gh auth login`，完成后继续。
-- repo creation、push、tag、GitHub Release、force push、删除分支等公开或不可逆动作必须得到用户确认。用户已经明确要求的本地文件编辑不需要反复询问。
-- 不记忆初始化偏好。每次初始化或生成文件时，都从默认选项出发确认 license、语言比例、可见性、技术栈、自动化偏好。
-- 只有用户明确要求多代理/并行代理时，才把任务拆给子代理；拆分时写清绝对路径、写入范围和验收标准。
+- Run only after explicit permission to upload the repository and use ChatGPT.
+- Use `review` for Pro with Deep Research and `pro` for Pro without it. Do not
+  split one requested review into multiple independent conversations.
+- Send the prompt byte-for-byte. Do not prepend, append, summarize, or improve it.
+- Keep one persistent private GitHub backup per local repository. Never create a
+  new remote per review, delete remote-only refs, force-push, or rewrite history.
+- Keep only one active review run per resolved local repository path. The
+  publisher serializes run creation and rejects a second active run; finish,
+  block/archive, or explicitly supersede the first run instead.
+- A disposable clone is staging only. Do not change the source repository's
+  branch, index, worktree, remotes, or commits.
+- Do not upload credentials silently. User-approved private content is allowed;
+  high-confidence credential paths require an explicit per-path override.
+- Use the supported connected browser. Do not use private ChatGPT APIs, copy
+  cookies or profiles, or automate ChatGPT through raw Playwright.
+- Do not poll page content. Follow
+  [references/browser-protocol.md](references/browser-protocol.md) exactly; only
+  its bounded generation-sentinel fallback is allowed when an event wait is
+  demonstrably unavailable.
 
-## Request Routing
+## Publish The Persistent Backup
 
-1. **Docs polish**: README、CONTRIBUTING、徽章、架构图、双语文档。读取 `references/documentation.md`。
-2. **Repo bootstrap**: 新仓库初始化、`.gitignore`、LICENSE、远端创建、首个提交。读取 `references/bootstrap.md`。
-3. **Community files**: Issue/PR 模板、CODE_OF_CONDUCT、基础 Actions。读取 `references/community.md`。
-4. **Release**: 版本号联动、tag、Release Notes、GitHub Release。读取 `references/release.md`。
-5. **Commit hygiene**: 暂存、拆分提交、改写提交信息、提交前检查。使用下方 Commit Policy。
+Resolve this Skill directory as `<skill-dir>`. Required inputs are the repository
+root, `review` or `pro`, a UTF-8 prompt file, and a binding:
 
-## Default Workflow
+- `source-chip` (default): bind the exact private repository in ChatGPT.
+- `raw-url`: use only when explicitly chosen. The exact
+  `https://github.com/owner/repository` URL must already be present unchanged in
+  the prompt; do not add a generic GitHub plugin pill or claim connector indexing.
 
-1. 判断请求类型，并扫描现有仓库约定。
-2. 给出最小改动范围：会读哪些文件、写哪些文件、是否需要公开动作。
-3. 编辑后回读关键文件，检查 Markdown/YAML/版本号/链接是否自洽。
-4. 运行低成本验证：例如 `git diff --check`、可用的 markdown/yaml 校验、项目已有测试或文档构建命令。
-5. 只有当用户请求提交，或当前流程明确包含提交且用户已确认时，才 commit。
-6. push、tag、release 前再次确认目标远端、分支、tag 和 release 标题。
+### GitHub CLI authentication preflight
 
-## Commit Policy
+Before invoking the publisher, run `gh auth status -h github.com` and verify the
+active account is the intended repository owner. If it succeeds, skip the entire
+browser/device authorization flow. Do not refresh a valid login merely because a
+new review is starting.
 
-优先沿用仓库既有提交规范；当用户要求 HubSage 标准化，使用 **Gitmoji + Conventional Commits**：
+If the login is missing or invalid, proceed only with the user's explicit
+permission to authenticate GitHub for this Skill. Run:
 
-```text
-<emoji> <type>(optional-scope): <imperative summary>
+```bash
+gh auth login -h github.com --web --git-protocol https
 ```
 
-允许的类型：
+Within this Skill only, Codex may enter the one-time device code in the supported
+browser and click the GitHub CLI authorization button when the user has explicitly
+authorized that automation. Never read or enter the user's password, passkey,
+authenticator code, recovery code, or GitHub Mobile confirmation. Hand those
+controls to the user and wait.
 
-- `🎉 init:` 初始化项目或首个提交
-- `✨ feat:` 新功能
-- `🐛 fix:` 常规 Bug 修复
-- `🚑 hotfix:` 紧急热修复
-- `♻️ refactor:` 无行为变化的重构
-- `📝 docs:` 文档、示例、社区模板
-- `🎨 style:` 格式化，不影响逻辑
-- `✅ test:` 测试相关
-- `👷 ci:` CI/CD、GitHub Actions
-- `👷 build:` 构建系统、依赖、版本元数据
-- `🔧 chore:` 维护杂项
-- `🚀 release:` 发布、tag、release notes
+After a user completes GitHub's sudo-mode confirmation, the original device code
+may already have expired. If so, generate one fresh device code and complete it
+immediately; never reuse an expired code or loop through repeated login attempts.
+If that single fresh retry fails, stop and report the authentication blocker.
 
-提交信息要具体、克制、可检索；拒绝 `update`、`fix stuff`、`misc changes` 这类口语化摘要。若一次改动跨多个主题，拆成多个提交。
+Finally, rerun `gh auth status -h github.com` and verify the intended active
+account before publishing. Do not print, copy, inspect, or persist the OAuth token.
+This conditional authorization is part of this Skill's GitHub publishing SOP and
+does not grant permission to automate authentication for unrelated workflows.
 
-## Documentation Standards
+GitHub CLI authentication authorizes only repository creation, upload, and
+readback by this local workflow. It does not prove that ChatGPT's GitHub App is
+authorized, and a ChatGPT GitHub App grant does not prove that `gh` is logged in.
+The v3 ledger stores these as separate evidence domains. Behavior tests prove
+that the CLI preflight never invokes `gh auth login` by itself; login remains a
+separate, explicitly user-authorized recovery action.
 
-- `README.md` 必须让新读者在 1 分钟内知道项目是什么、为什么可信、如何跑起来。
-- 徽章只能引用真实存在的状态、license、版本或工作流；不要伪造 build passing。
-- Mermaid 架构图必须来自实际代码或用户描述；信息不足时用保守的数据流图，并标注仍需确认的模块。
-- `CONTRIBUTING.md` 必须包含本地环境、分支规范、提交规范、PR 流程、测试/检查命令。
-- AI Agent Skill 类项目要区分文风：`README.md` 面向人类，严谨专业；`SKILL.md` 面向 Agent，可更有角色感，但仍要可执行。
+Run:
 
-## Review Checklist
+```bash
+python3 <skill-dir>/scripts/review_repo.py publish \
+  --repo /absolute/project/path \
+  --mode review \
+  --binding source-chip \
+  --prompt-file /absolute/prompt.txt
+```
 
-- 没有无意修改业务逻辑或用户未要求的文件。
-- 新增文档中的命令要么已验证，要么明确标注“未在本机验证”。
-- 双语内容意思一致，不用空泛营销话术填充版面。
-- `.github` 模板有合法 frontmatter，复选框用 `[ ]`。
-- Actions workflow 的权限最小化，不使用高风险的 `pull_request_target`，除非用户明确需要并理解风险。
-- Release notes 来自实际 `git log`/PR/issue 信息，不凭空编造功能。
-- 版本号文件、tag、release 标题保持一致。
+For approved WIP, add `--include-working-tree`. For a deliberate credential-path
+exception, repeat `--allow-sensitive-path relative/path`.
+
+The publisher reuses the source's existing project mapping. Without one, an
+explicit `--mirror` wins; otherwise it uses a meaningful GitHub origin basename
+or local repository dirname. Generic names such as `Li`, `repo`, or `project`
+fail closed and require `--mirror owner/repository`.
+
+It then:
+
+- verifies the destination is private and has this Skill's project marker;
+- uploads every local branch, tag, and reachable history without deleting
+  remote-only history;
+- archives a non-fast-forward local ref under a unique remote archival ref;
+- creates `review/wip/<run-id>` only for explicitly approved dirty content;
+- makes the reviewed branch the GitHub default branch;
+- freezes `prompt.txt` by byte length and SHA-256 and rechecks it at every v3
+  browser or collection transition;
+- serializes run creation and rejects a second active run for the same resolved
+  source path;
+- rejects submodules, Git LFS pointer-only content, oversized GitHub blobs, and
+  unapproved credential paths; and
+- records the exact private mirror, default branch, commit, prompt hash, binding,
+  source manifest, and upload result in a private v3 run directory.
+
+Do not enter the browser phase unless output status is `published` and
+`mirror_private` is `true`.
+
+## Bind And Submit In ChatGPT
+
+Open one fresh saved ChatGPT conversation, never Temporary Chat. Register and
+activate only the tabs created for this run:
+
+```bash
+python3 <skill-dir>/scripts/review_repo.py tab \
+  --run-dir /absolute/run --action register --tab-id <browser-tab-id> \
+  --kind chatgpt-draft --url https://chatgpt.com/
+python3 <skill-dir>/scripts/review_repo.py tab \
+  --run-dir /absolute/run --action activate --tab-id <browser-tab-id>
+```
+
+Before binding, verify the ChatGPT GitHub App grant separately from both GitHub
+CLI authentication and source indexing. If a `source-chip` mirror is authorized
+but not yet selectable, record
+`source-index-pending` once and stop without polling:
+
+```bash
+python3 <skill-dir>/scripts/review_repo.py event \
+  --run-dir /absolute/run --event source-index-pending \
+  --app-grant verified --binding source-chip \
+  --repository owner/repository --default-branch branch --commit SHA \
+  --tab-id <browser-tab-id>
+```
+
+When the exact source is available, record structured source evidence. The
+visible capability must literally be `Pro`; a reasoning-strength label such as
+`xhigh` or `极高` is not sufficient. Deep Research must be active only for
+`review`. The command re-reads the private GitHub repository's current default
+branch and branch SHA immediately before accepting browser evidence. Any drift
+from the published review commit fails closed:
+
+```bash
+python3 <skill-dir>/scripts/review_repo.py event \
+  --run-dir /absolute/run --event source-bound \
+  --capability-label Pro --deep-research active --app-grant verified \
+  --binding source-chip --repository owner/repository \
+  --default-branch branch --commit SHA --tab-id <browser-tab-id>
+```
+
+Prepare the full prompt outside the composer and fill it in one operation. Read
+the composer once, compare it to the frozen `prompt.txt`, calculate the exact
+SHA-256, and record readiness. Editing or replacing `prompt.txt` after run
+creation makes every v3 transition fail closed:
+
+```bash
+python3 <skill-dir>/scripts/review_repo.py event \
+  --run-dir /absolute/run --event composer-ready \
+  --prompt-sha256 SHA256 --fill-method single-operation \
+  --tab-id <browser-tab-id>
+```
+
+Click the visible send button once. Never press Enter to submit. After the URL
+becomes a durable saved conversation URL, record:
+
+```bash
+python3 <skill-dir>/scripts/review_repo.py event \
+  --run-dir /absolute/run --event submitted \
+  --conversation-url https://chatgpt.com/c/CONVERSATION \
+  --submission-method send-button --tab-id <browser-tab-id>
+```
+
+The v3 state machine rejects model/mode/source/branch/SHA/prompt/tab mismatches,
+remote review-commit drift, sequential typing, Enter submission, duplicate
+submission, unrelated tabs, and unsupported completion claims.
+
+Binding assurance is explicit:
+
+- `github-app-source-chip-exact-commit-v1` means the App grant, visible source
+  chip, exact repository/default branch/commit, and live GitHub readback all
+  matched. It still does not cryptographically attest what ChatGPT read.
+- `raw-url-reference-only-v1` means only that the unchanged prompt contains the
+  exact private repository URL. Even with a separately verified App grant, it
+  must never be described as source-chip binding or proof that repository
+  contents were retrieved.
+
+## Correct A Pre-Submission Run
+
+If mode, binding, or prompt is wrong after publication, close every abandoned
+run-owned draft or temporary GitHub tab in the browser and record each close.
+Then reuse the already verified snapshot without touching Git or GitHub:
+
+```bash
+python3 <skill-dir>/scripts/review_repo.py supersede \
+  --run-dir /absolute/old-run --mode review --binding source-chip \
+  --prompt-file /absolute/corrected-prompt.txt --reason "correct review mode"
+```
+
+An identical replacement is rejected. A submitted conversation cannot be
+superseded this way.
+
+## Wait, Collect, And Resume
+
+Identify the current generation sentinel from targeted semantic button metadata,
+then record `wait-start` with that exact opaque identifier:
+
+```bash
+python3 <skill-dir>/scripts/review_repo.py event \
+  --run-dir /absolute/run --event wait-start \
+  --generation-sentinel <observed-sentinel-id> \
+  --tab-id <browser-tab-id>
+```
+
+Use one event-driven wait. Do not read response text or status while it is
+active. Completion is accepted only after the recorded sentinel is absent and
+the mode-specific final container is present. `review` requires
+`deep-research-report`; `pro` requires `assistant-turn`:
+
+```bash
+python3 <skill-dir>/scripts/review_repo.py event \
+  --run-dir /absolute/run --event wait-complete \
+  --generation-sentinel <same-observed-sentinel-id> \
+  --completion-proof generation-sentinel-absent-and-final-container-present \
+  --final-container deep-research-report --tab-id <browser-tab-id>
+```
+
+Extract only that final container once into a non-symlink file under
+`/private/tmp` or the process temporary directory. Calculate its SHA-256 before
+collection and bind the file to the recorded conversation, tab, and container:
+
+```bash
+python3 <skill-dir>/scripts/review_repo.py collect \
+  --run-dir /absolute/run --answer-file /private/tmp/temporary-answer.md \
+  --answer-sha256 SHA256 --source-kind deep-research-report \
+  --source-conversation-url https://chatgpt.com/c/CONVERSATION \
+  --source-tab-id <browser-tab-id>
+```
+
+Collection records the asserted browser source path, conversation, tab,
+container kind, byte count, claimed hash, and observed hash. This proves which
+local bytes were archived; it remains operator-observed browser provenance, not
+a cryptographic attestation from ChatGPT.
+
+For a genuine disconnect, record `pending`, then `reconnect`, reopen only the
+saved conversation URL, register and activate the replacement tab, and use the
+one remaining long wait. If the original tab actually closed, record its close
+with `--reason disconnected`. A second reconnect,
+third wait, warning retry, duplicate collection, or conversation search is
+forbidden. A frequency warning is terminal: record `warning`, optionally save
+one diagnostic screenshot, and stop.
+
+## Inspect And Archive
+
+Read state without external access:
+
+```bash
+python3 <skill-dir>/scripts/review_repo.py show --run-dir /absolute/run
+python3 <skill-dir>/scripts/review_repo.py list
+python3 <skill-dir>/scripts/review_repo.py list --all
+```
+
+Archive only an explicitly selected terminal run. A dry-run `prepared` record is
+also archivable so it does not permanently occupy the source's single active
+slot. Archiving changes status; it does not delete or move evidence:
+
+```bash
+python3 <skill-dir>/scripts/review_repo.py archive --run-dir /absolute/run
+```
+
+Legacy v1/v2 runs remain readable and are marked `legacy_unverified`, but they
+cannot acquire v3 completion or collection claims. Record `warning` to block and
+archive an abandoned legacy run; never migrate or reinterpret its browser
+evidence automatically.
+
+Report the private backup URL, reviewed ref and commit, binding, mode,
+conversation URL, final status, and `answer.md` path. Treat GPT output as review
+advice, not verified local truth. Consult [KNOWN-ISSUES.md](KNOWN-ISSUES.md)
+before changing browser or state-machine behavior.

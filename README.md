@@ -1,109 +1,81 @@
-<div align="center">
-  <img src="assets/hubsage-cover.svg" alt="HubSage — repository craft before release theatre" width="100%" />
-</div>
+# HubSage
 
-<div align="center">
+HubSage currently distributes the explicit-only Codex Skill
+`private-github-pro-review`. It publishes a local Git repository to one
+persistent private GitHub mirror, binds an exact revision in a saved ChatGPT
+conversation, runs GPT Pro or GPT Pro with Deep Research, and records evidence
+for the final collected answer.
 
-[![License: MIT](https://img.shields.io/badge/license-MIT-F2D98A.svg)](https://opensource.org/licenses/MIT)
-[![Latest Release](https://img.shields.io/badge/release-v1.3.0-7FF2B0.svg)](https://github.com/Liii8888/HubSage/releases/tag/v1.3.0)
-[![Codex Skill](https://img.shields.io/badge/Codex-Skill-151C25.svg)](SKILL.md)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-B88A35.svg)](CONTRIBUTING.md)
+## What It Does
 
-**HubSage makes a repository feel maintained before anybody has to ask whether it is.**<br>
-它不是写业务代码的助手，而是开源仓库的门面、秩序和发布纪律。
+- Preserves local branches, tags, and reachable history in one private mirror.
+- Publishes an approved dirty worktree through an isolated WIP branch.
+- Freezes the prompt by byte count and SHA-256 before browser submission.
+- Separates GitHub CLI authentication from ChatGPT GitHub App authorization.
+- Detects default-branch or review-commit drift before source binding.
+- Allows only one active review run per resolved local repository.
+- Records bounded browser, completion, source, and collection evidence.
+- Stops on credentials, unsupported Git objects, ambiguous UI state, or access
+  warnings instead of silently weakening the review contract.
 
-[Install](#install) · [What It Changes](#what-it-changes) · [System Map](#system-map) · [Release Discipline](#release-discipline)
+The helper script is an evidence ledger and GitHub publisher. Browser actions
+are performed by a supported Codex browser integration under the rules in
+[`references/browser-protocol.md`](references/browser-protocol.md).
 
-</div>
+## Requirements
 
----
-
-## What It Changes
-
-Most repositories do not fail because the code is impossible to understand. They fail because everything around the code feels unfinished: a thin README, loose commits, missing release notes, vague contribution rules, and public GitHub actions done a little too casually.
-
-HubSage is the maintainer ritual around that problem. It gives an AI agent a strict, tasteful workflow for making GitHub repositories presentable, auditable, and harder to release carelessly.
-
-| Without HubSage | With HubSage |
-| --- | --- |
-| README as an afterthought | README as the public doorway |
-| `update` / `misc` commits | Gitmoji + Conventional Commits |
-| Release notes written from memory | Release notes derived from actual history |
-| Public actions by impulse | Push, tag, repo creation, and release behind confirmation |
-| One long prompt file | Routed skill with focused references |
-
-## The Maintainer Stack
-
-| Layer | File | Job |
-| --- | --- | --- |
-| Command surface | `SKILL.md` | Routes requests, defines guardrails, keeps the agent disciplined |
-| Documentation craft | `references/documentation.md` | README, CONTRIBUTING, badges, architecture diagrams |
-| Repository bootstrap | `references/bootstrap.md` | `.gitignore`, license guidance, first commit, remote setup |
-| Community posture | `references/community.md` | Issue templates, PR templates, conduct guidance, safe Actions |
-| Release discipline | `references/release.md` | Version notes, changelog, tags, GitHub Releases |
-| Codex presentation | `agents/openai.yaml` | UI metadata for the installed skill |
-
-## System Map
-
-```mermaid
-flowchart LR
-    intent["user intent"] --> router["SKILL.md<br/>routing layer"]
-    router --> docs["documentation<br/>public face"]
-    router --> boot["bootstrap<br/>repo spine"]
-    router --> community["community<br/>collaboration"]
-    router --> release["release<br/>version line"]
-    router --> guard["guardrails<br/>confirmation gates"]
-    docs --> repo["trustworthy repository"]
-    boot --> repo
-    community --> repo
-    release --> repo
-    guard --> repo
-```
+- Python 3.10 or newer
+- Git and GitHub CLI (`gh`)
+- A GitHub account able to create private repositories
+- ChatGPT Pro and an authorized ChatGPT GitHub App connection for source-chip
+  binding
+- A supported Codex browser integration
 
 ## Install
 
-Install HubSage as a Codex skill:
+```bash
+# From a checkout of this repository:
+mkdir -p "$HOME/.agents/skills/private-github-pro-review"
+cp -R SKILL.md KNOWN-ISSUES.md agents references scripts \
+  "$HOME/.agents/skills/private-github-pro-review/"
+```
+
+The installed Skill ID remains `private-github-pro-review`.
+
+## Use
+
+Invoke the Skill explicitly and provide the repository, mode, binding, and
+prompt file. The deterministic publisher can also be run directly:
 
 ```bash
-git clone https://github.com/Liii8888/HubSage.git
-mkdir -p ~/.codex/skills/HubSage
-cp -R HubSage/SKILL.md HubSage/references HubSage/agents ~/.codex/skills/HubSage/
+python3 scripts/review_repo.py publish \
+  --repo /absolute/path/to/repository \
+  --mode review \
+  --binding source-chip \
+  --prompt-file /absolute/path/to/prompt.txt
 ```
 
-Then speak to the agent like a maintainer, not a config file:
+Use `--mode pro` for GPT Pro without Deep Research. The prompt is always sent
+unchanged.
 
-```text
-使用 HubSage 规范化当前 GitHub 仓库，并准备下一版 Release Notes。
-```
+Run state defaults to `$XDG_STATE_HOME/private-github-pro-review`, or
+`~/.local/state/private-github-pro-review` when `XDG_STATE_HOME` is unset.
+Override it with `PRIVATE_GITHUB_PRO_REVIEW_HOME` when needed.
 
-```text
-Use HubSage to polish this repository and prepare a safe release flow.
-```
+## Safety Boundaries
 
-## Release Discipline
+- Upload and ChatGPT access require explicit user permission.
+- Mirrors must remain private and carry the Skill's management marker.
+- Existing remote-only history is retained; force-push and history rewriting
+  are forbidden.
+- High-confidence credential paths require an explicit per-path exception.
+- Browser waiting is bounded and does not repeatedly scrape the conversation.
+- Browser evidence records what was observed; it is not cryptographic proof of
+  ChatGPT's internal retrieval.
 
-HubSage uses a two-speed release model:
+See [`SKILL.md`](SKILL.md) for the operating contract and
+[`KNOWN-ISSUES.md`](KNOWN-ISSUES.md) for current external limitations.
 
-| Change | Where it goes | What happens |
-| --- | --- | --- |
-| Small evolution | `CHANGELOG.md#Unreleased` and `origin/develop` | Recorded, pushed, not released |
-| Behavior-level update | Versioned changelog section | Release branch, annotated tag, GitHub Release |
+## License
 
-Latest release: [`v1.3.0`](https://github.com/Liii8888/HubSage/releases/tag/v1.3.0).
-
-## Repository Shape
-
-```text
-HubSage/
-├── assets/                   # Visual identity for the repository
-├── SKILL.md                  # Routing layer and operating rules
-├── references/               # Progressive workflow details
-├── agents/openai.yaml        # Codex UI metadata
-├── CHANGELOG.md              # Small-update ledger and release source
-├── CONTRIBUTING.md           # Contribution and validation guide
-└── README.md                 # Public-facing project doorway
-```
-
-## Contributing
-
-Keep changes narrow, auditable, and recorded. If a change alters behavior, release flow, public docs, or safety boundaries, update [CHANGELOG.md](CHANGELOG.md) before opening the PR.
+MIT
