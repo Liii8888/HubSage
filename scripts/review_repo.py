@@ -731,13 +731,14 @@ def resolve_mirror(
 
 def require_raw_repository_url(prompt: bytes, mirror: str) -> str:
     url = f"https://github.com/{mirror}"
-    # Accept only a complete plain URL, separated from surrounding text. Do not
-    # extract a matching substring from another repository, URL, or Markdown
-    # link. Preparation can safely prefix the verified URL for ambiguous input.
-    if url.encode("utf-8") not in prompt.split():
+    # An exact first line cannot be link text inside preceding Markdown. Avoid
+    # interpreting user-authored markup: preparation prefixes this trusted line
+    # while preserving the entire original request, including other links.
+    encoded = url.encode("utf-8")
+    if prompt != encoded and not prompt.startswith((encoded + b"\n", encoded + b"\r\n")):
         abort(
-            "raw-url binding requires the exact private repository URL as a "
-            f"separate whitespace-delimited token in the prompt: {url}"
+            "raw-url binding requires the exact private repository URL alone "
+            f"on the first line of the prompt: {url}"
         )
     return url
 

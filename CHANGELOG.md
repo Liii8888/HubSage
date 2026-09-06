@@ -61,15 +61,18 @@ Publication dates are recorded by GitHub Releases; this file groups the version'
 
 ### Source-link correction after candidate `bec1c70`
 
-- Recognize the target repository only as a complete plain URL token, never a
-  substring of a different repository or a nested URL. Ambiguous URL/Markdown
-  forms receive a separate verified link while original request bytes remain
-  unchanged. Keep ordinary standalone links unduplicated and source-chip behavior
-  unchanged. Recheck raw references before browser use, including old combined
-  v3 records; do not rewrite historical records to hide an invalid reference.
+- Put the exact verified repository URL alone on the message's first line,
+  prefixing it unless that line already exists. Preserve original request bytes,
+  including inline links and Markdown, and leave source-chip behavior unchanged.
+  Substrings and whitespace token matching cannot establish this prefix: both can
+  mistake link text for a target, including multi-line Markdown labels found in
+  the follow-up review of `cdaa61b`.
+- Recheck raw references before browser use, including the legacy combined CLI.
+  Its explicit raw-url message now requires this first line; historical records
+  without it stay readable but cannot gain current source checks by rewriting.
 - Add regressions for incorrect repository suffixes, embedded query links,
-  ambiguous markup, unchanged request/upload receipts, and preparation through
-  composer-ready with the correct standalone target URL.
+  inline/multi-line Markdown, unchanged request/upload receipts, and preparation
+  through composer-ready with the correct first-line URL.
 
 ### Review workflow history
 

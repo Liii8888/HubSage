@@ -428,7 +428,7 @@ class PersistentBackupTests(unittest.TestCase):
     def test_raw_url_binding_requires_exact_repository_url(self) -> None:
         mirror = "tester/private-project"
         expected = "https://github.com/tester/private-project"
-        for prompt in (expected, f"请审查 {expected}\n", f"before\t{expected}\r\nafter"):
+        for prompt in (expected, f"{expected}\n请审查。", f"{expected}\r\nexact request\t"):
             with self.subTest(prompt=prompt):
                 self.assertEqual(
                     MODULE.require_raw_repository_url(prompt.encode("utf-8"), mirror), expected
@@ -445,6 +445,9 @@ class PersistentBackupTests(unittest.TestCase):
             "https://example.invalid/(" + url + ")",
             "prefix" + url, "[" + url + "](https://example.invalid/)",
             "[repository](" + url + ")", "<" + url + ">", url + ".",
+            "[ " + url + " ](https://example.invalid/)",
+            "[\n" + url + "\n](https://example.invalid/)",
+            "Review " + url, "    " + url,
         ):
             original = ("检查 " + reference + "\r\n  exact bytes  \n").encode()
             with self.subTest(reference=reference):
@@ -800,7 +803,8 @@ class BrowserStateTests(unittest.TestCase):
         # containing a URL accepted by the earlier substring check.
         self.assertNotIn("review_input_version", state)
         url = "https://github.com/tester/private-project"
-        for reference in (url + "-old", "https://example.invalid/?repo=" + url):
+        for reference in (url + "-old", "https://example.invalid/?repo=" + url,
+                          "[ " + url + " ](https://example.invalid/)", url):
             prompt = ("Review " + reference + "\n").encode()
             MODULE.atomic_write(self.run_dir / "prompt.txt", prompt)
             state.update(prompt_sha256=MODULE.sha256_bytes(prompt), prompt_bytes=len(prompt))
@@ -1788,7 +1792,9 @@ class UploadFirstTests(unittest.TestCase):
 
     def test_ambiguous_request_gets_verified_url_before_composer_ready(self) -> None:
         url = f"https://github.com/{self.mirror}"
-        for reference in (url + "-old", "https://example.invalid/?repo=" + url):
+        for reference in (url + "-old", "https://example.invalid/?repo=" + url,
+                          "[ " + url + " ](https://example.invalid/)",
+                          "[\n" + url + "\n](https://example.invalid/)", url):
             with self.subTest(reference=reference):
                 original = ("Review " + reference + "\r\n原文不改。  \n").encode()
                 self.request.write_bytes(original)
@@ -1886,8 +1892,13 @@ class UploadFirstTests(unittest.TestCase):
         self.assertEqual((self.repo / "value.txt").read_text(), "working tree\n")
 
     def test_raw_link_not_duplicated_and_source_chip_remains_available(self) -> None:
-        original = f"Review https://github.com/{self.mirror}\nexact words".encode()
-        self.assertEqual(MODULE.compose_review_prompt(original, self.mirror, "raw-url"), original)
+        url = f"https://github.com/{self.mirror}".encode()
+        for original in (url, url + b"\nexact words", url + b"\r\nexact words"):
+            with self.subTest(original=original):
+                self.assertEqual(MODULE.compose_review_prompt(original, self.mirror, "raw-url"), original)
+        inline = b"Review " + url + b"\nexact words"
+        self.assertEqual(MODULE.compose_review_prompt(inline, self.mirror, "raw-url"),
+                         url + b"\n\n" + inline)
         uploaded = self.publish()
         state = self.prepare(uploaded, "review", "--binding", "source-chip")
         self.assertEqual((Path(uploaded["run_dir"]) / "prompt.txt").read_bytes(), self.request.read_bytes())

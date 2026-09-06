@@ -29,6 +29,10 @@
   continue running. Absence of a guessed localized stop label is not completion;
   identify the visible generation sentinel first and extract text only after it
   disappears.
+- Older raw-url prompts without the verified repository URL alone on the first
+  line remain readable, but current source checks reject them. Do not modify
+  frozen history to pass; end the old run after observing its actual status and
+  use a new review with the original requirements preserved.
 - Existing v1/v2 runs lack the complete v3 evidence. They remain readable and
   are always displayed as `legacy_unverified`, but cannot gain v3 completion or
   collection claims and are never auto-migrated.
