@@ -2,7 +2,7 @@
 
 把本地 Git 仓库备份到长期使用的 GitHub 私有仓库，再交给 ChatGPT Pro 或 Pro + Deep Research 审查，保存来源、状态与回答证据。Skill ID 为 `private-github-pro-review`，仅接受显式调用。
 
-This Codex Skill maintains a persistent private GitHub backup and records the source and result of a bounded ChatGPT review. The existing HubSage repository is its public distribution home.
+This Codex Skill maintains a persistent private GitHub backup and records the source and result of a bounded ChatGPT review. The public repository is `Liii8888/private-github-pro-review`.
 
 ## 安装与调用
 
@@ -13,7 +13,7 @@ This Codex Skill maintains a persistent private GitHub backup and records the so
 ```bash
 (
   PGPR_REVIEWED_SHA=FULL_REVIEWED_COMMIT_SHA &&
-  git clone --no-checkout https://github.com/Liii8888/HubSage.git private-github-pro-review &&
+  git clone --no-checkout https://github.com/Liii8888/private-github-pro-review.git private-github-pro-review &&
   cd private-github-pro-review &&
   git checkout --detach "$PGPR_REVIEWED_SHA" &&
   python3 scripts/export_skill.py export \
@@ -45,7 +45,7 @@ CLI 入口是 `scripts/review_repo.py`。先 `publish --repo /absolute/project/p
 
 ## 安全声明
 
-使用本 Skill 需显式授权备份和网页审查。它把选定项目备份到用户自己的 GitHub 私有仓库，再向用户已登录的 ChatGPT 提交审查要求和仓库链接。备份包含本地分支、tag 与可达历史；历史中已删除的文件也可能上传，未提交内容按用户选择纳入。源码分发仓库 `Liii8888/HubSage` 不接收用户项目；本 Skill 没有维护者自建的数据接收端或遥测上报。
+使用本 Skill 需显式授权备份和网页审查。它把选定项目备份到用户自己的 GitHub 私有仓库，再向用户已登录的 ChatGPT 提交审查要求和仓库链接。备份包含本地分支、tag 与可达历史；历史中已删除的文件也可能上传，未提交内容按用户选择纳入。源码分发仓库 `Liii8888/private-github-pro-review` 不接收用户项目；本 Skill 没有维护者自建的数据接收端或遥测上报。
 
 认证使用 Git／GitHub CLI 的既有机制及受支持的浏览器会话；不要求把原始 token 交给 Agent，也不复制浏览器 cookie 或 profile。仓库授权由用户控制：`All repositories` 是可选的便利配置，会扩大该 App 可访问的仓库范围；只授权目标仓库也能使用，本 Skill 不会自行扩大授权。
 
@@ -95,7 +95,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py'
 
 候选提交及其公开安装包须通过测试和内容检查，再交给维护者复审。用户批准后才推送、打 tag、发布 Release 和升级正式 Vault 快照。Release Notes 取自 [CHANGELOG.md](CHANGELOG.md)，不重复维护另一份版本说明。
 
-`v2.0.0` 接续原 HubSage 版本线，标明用途转为 Pro review；旧 `v1.x` 的 tag、Release 和 Git 历史继续保留。[现有发布历史](https://github.com/Liii8888/HubSage/releases)。
+现有仓库由 `HubSage` 原地改名为 `private-github-pro-review`；旧 GitHub 仓库链接继续重定向。`v2.0.0` 接续原版本线；旧 `v1.x` 的 tag、Release 和 Git 历史继续保留。[现有发布历史](https://github.com/Liii8888/private-github-pro-review/releases)。
 
 ## License
 

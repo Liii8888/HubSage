@@ -84,7 +84,7 @@ class DistributionTests(unittest.TestCase):
         installed = self.root / "installed"
         recipe = (ROOT / "README.md").read_text().split("```bash\n", 1)[1].split("```", 1)[0]
         recipe = recipe.replace("FULL_REVIEWED_COMMIT_SHA", reviewed)
-        recipe = recipe.replace("https://github.com/Liii8888/HubSage.git", shlex.quote(str(self.repo)))
+        recipe = recipe.replace("https://github.com/Liii8888/private-github-pro-review.git", shlex.quote(str(self.repo)))
         recipe = recipe.replace('"$HOME/.agents/skills/private-github-pro-review"', shlex.quote(str(installed)))
         recipe = recipe.replace("python3 scripts/", shlex.quote(sys.executable) + " scripts/")
         return subprocess.run(["bash", "-c", recipe], cwd=self.root, capture_output=True, text=True)

@@ -8,6 +8,8 @@ Publication dates are recorded by GitHub Releases; this file groups the version'
 ### Source and distribution
 
 - Establish one independent source repository and reviewed Skill Vault distribution snapshots.
+- Rename the existing GitHub repository from HubSage to `private-github-pro-review`,
+  retaining repository identity, history, old releases and GitHub URL redirects.
 - Add deterministic export and verification from a full Git commit SHA, including source and distribution hashes, provenance, and license.
 - Preserve explicit invocation in both Skill frontmatter and Codex metadata.
 - Retain public portable state paths and sanitized field notes. Permit one declared, verifiable local default-state adaptation without moving existing review records.
@@ -88,8 +90,8 @@ Dates below describe implementation history, not separate software releases. The
 | 2026-08-23 | `6232ef1` | Reuse valid GitHub authentication, retain user-owned credential steps, bound device-code recovery, and identify the active generation sentinel. |
 | 2026-08-23 | `2fd50b9` | Require matching completion evidence and final container; recheck source drift; serialize active runs; freeze Prompt bytes; verify answer provenance; separate CLI and App evidence; keep legacy records unverified. |
 
-The public repository adopted this workflow in [`8ef90a9`](https://github.com/Liii8888/HubSage/commit/8ef90a929f1c6a77f4a0772943a9e3aea8811218) on 2026-08-23. Portable defaults, public-distribution checks, and sanitized examples came with that publication; [`226c244`](https://github.com/Liii8888/HubSage/commit/226c24488afc80298d5643fd5f0f568470d1d63e) clarified the project guide.
+The public repository adopted this workflow in [`8ef90a9`](https://github.com/Liii8888/private-github-pro-review/commit/8ef90a929f1c6a77f4a0772943a9e3aea8811218) on 2026-08-23. Portable defaults, public-distribution checks, and sanitized examples came with that publication; [`226c244`](https://github.com/Liii8888/private-github-pro-review/commit/226c24488afc80298d5643fd5f0f568470d1d63e) clarified the project guide.
 
 ## Legacy HubSage v1.x
 
-Versions v1.0.0–v1.3.0 described the former repository-maintenance Skill. Their [tags and releases](https://github.com/Liii8888/HubSage/releases) remain historical records. Those version numbers are unrelated to the review run schema.
+Versions v1.0.0–v1.3.0 described the former repository-maintenance Skill. Their [tags and releases](https://github.com/Liii8888/private-github-pro-review/releases) remain historical records. Those version numbers are unrelated to the review run schema.

@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 
-UPSTREAM = "https://github.com/Liii8888/HubSage"
+UPSTREAM = "https://github.com/Liii8888/private-github-pro-review"
 PAYLOAD = (
     "SKILL.md",
     "README.md",
