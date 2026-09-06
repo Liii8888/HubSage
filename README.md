@@ -1,116 +1,64 @@
-# HubSage
+# Private GitHub Pro Review
 
-HubSage 目前用于发布 `private-github-pro-review` Codex Skill。
+把本地 Git 仓库备份到长期使用的 GitHub 私有仓库，再交给 ChatGPT Pro 或 Pro + Deep Research 审查，保存来源、状态与回答证据。Skill ID 为 `private-github-pro-review`，仅接受显式调用。
 
-它会把本地 Git 仓库备份到一个长期使用的 GitHub 私有仓库，再将指定版本交给 ChatGPT Pro 或 Deep Research 审查，并保存本次审查的来源、状态和结果证据。
+This Codex Skill maintains a persistent private GitHub backup and records the source and result of a bounded ChatGPT review. The existing HubSage repository is its public distribution home.
 
-本仓库只包含可公开分发的版本，不包含本机绝对路径、真实私有仓库名称、运行记录或凭据。
+## 安装与调用
 
-## 功能
+需要 Python 3.10+、Git、GitHub CLI，以及具备现有脚本所需 POSIX 文件锁能力的环境。本轮验证平台为 macOS。网页步骤需要 ChatGPT Pro、获准访问目标私有仓库的 GitHub App，以及受支持的 Codex 浏览器工具。
 
-- 保存本地分支、标签和可达 Git 历史。
-- 使用同一个私有 GitHub 仓库持续备份项目，不为每次审查新建临时仓库。
-- 支持经过用户确认的未提交工作树快照。
-- 支持 GPT Pro 和 GPT Pro + Deep Research 两种审查模式。
-- 冻结 Prompt 的字节数和 SHA-256，防止提交前后发生变化。
-- 绑定仓库、默认分支和 Commit，并在发送前检查远端漂移。
-- 同一个本地仓库同一时间只允许一个活动审查任务。
-- 记录浏览器标签页、会话地址、完成状态、回答文件和 SHA-256。
-- 区分 GitHub CLI 登录与 ChatGPT GitHub App 授权。
-- 遇到凭据文件、超大对象、Git LFS 指针、未知页面状态或访问警告时停止。
-
-## 基本流程
-
-1. 检查本地 Git 仓库和 GitHub CLI 登录状态。
-2. 创建或复用该项目对应的 GitHub 私有备份仓库。
-3. 上传分支、标签、历史，以及明确获准的工作树快照。
-4. 在新的 ChatGPT 会话中绑定指定仓库版本并发送原始 Prompt。
-5. 等待生成结束，收集最终回答并记录校验信息。
-
-`scripts/review_repo.py` 负责 GitHub 发布和证据状态管理。浏览器操作由受支持的 Codex 浏览器工具完成，具体约束见 [`references/browser-protocol.md`](references/browser-protocol.md)。
-
-## 环境要求
-
-- Python 3.10 或更高版本
-- Git
-- GitHub CLI (`gh`)
-- 可以创建私有仓库的 GitHub 账号
-- ChatGPT Pro
-- 已授权访问目标私有仓库的 ChatGPT GitHub App
-- 受支持的 Codex 浏览器工具
-
-## 安装
-
-在本仓库的本地检出目录中执行：
+从你已审查的完整提交 SHA 导出到一个尚不存在的目录：
 
 ```bash
-mkdir -p "$HOME/.agents/skills/private-github-pro-review"
-cp -R SKILL.md KNOWN-ISSUES.md agents references scripts \
-  "$HOME/.agents/skills/private-github-pro-review/"
+git clone https://github.com/Liii8888/HubSage.git private-github-pro-review
+cd private-github-pro-review
+python3 scripts/export_skill.py export \
+  --ref FULL_REVIEWED_COMMIT_SHA \
+  --output "$HOME/.agents/skills/private-github-pro-review"
 ```
 
-安装后的 Skill ID 为：
-
-```text
-private-github-pro-review
-```
-
-该 Skill 只接受显式调用。
-
-## 使用
-
-可以直接要求 Codex 使用 Skill：
+导出工具不会覆盖已有目录或替换现有 Skill Vault 入口。通过 Vault 使用时，由维护者在审核后更新固定分发快照。
 
 ```text
 使用 $private-github-pro-review，把当前仓库备份到长期私有 GitHub 仓库，并交给 GPT Pro + Deep Research 审查。
 ```
 
-也可以单独运行发布脚本：
+CLI 入口保持为 `scripts/review_repo.py`。`publish --mode review` 使用 Pro + Deep Research，`--mode pro` 使用 Pro；完整参数可通过 `--help` 查看。执行约束和浏览器步骤见 [SKILL.md](SKILL.md) 与 [browser protocol](references/browser-protocol.md)。
+
+## 行为与数据
+
+- 保存分支、tag 和可达历史；未提交快照需明确授权，源仓库保持原状。
+- 固定 Prompt 字节、仓库与提交，验证发布后来源漂移，并限制每个本地仓库同时一个活动审查。
+- 分别记录 GitHub CLI 登录、GitHub App 授权、页面来源绑定和最终回答证据。
+- 上传和使用 ChatGPT 需要授权；不自动登录、强推、重写历史或上传凭据。
+- 浏览器观察证明本地记录的页面状态，不证明 ChatGPT 内部实际检索了哪些内容。当前限制见 [KNOWN-ISSUES.md](KNOWN-ISSUES.md)。
+
+公开版默认使用 `$XDG_STATE_HOME/private-github-pro-review`，未设置时使用 `~/.local/state/private-github-pro-review`。`PRIVATE_GITHUB_PRO_REVIEW_HOME` 可显式覆盖；已有 `--state-root` 参数优先。使用本机适配的 Vault 快照时，其固定本机默认值优先于 XDG 默认值，显式环境变量和 CLI 参数仍可覆盖。
+
+私有库映射、Prompt、回答和运行记录保存在状态目录，既不进入源码，也不进入公开安装包。`RUN_VERSION = 3` 是运行记录格式；旧记录继续按既有兼容规则只读展示。
+
+## 固定提交分发
 
 ```bash
-python3 scripts/review_repo.py publish \
-  --repo /absolute/path/to/repository \
-  --mode review \
-  --binding source-chip \
-  --prompt-file /absolute/path/to/prompt.txt
+python3 scripts/export_skill.py export --ref FULL_REVIEWED_COMMIT_SHA --output /tmp/review-snapshot
+python3 scripts/export_skill.py verify --ref FULL_REVIEWED_COMMIT_SHA --directory /tmp/review-snapshot
 ```
 
-使用 `--mode pro` 时只使用 GPT Pro，不启用 Deep Research。Prompt 会按原始字节提交，不会自动扩写或改写。
+导出只读取指定 Git 提交，不读取未提交内容；`DISTRIBUTION.json` 和 `UPSTREAM.md` 记录来源和文件校验值。校验针对该提交，新源码 HEAD 前进不会改变已固定的快照。
 
-## 状态目录
+本机分发可以额外指定 `--local-state-root /absolute/local/state`；验证时必须独立提供相同参数。唯一允许的源码差异是脚本的默认状态目录赋值。这种包含本机配置的快照只用于本机；公开分发省略该参数。
 
-默认状态目录为：
-
-```text
-$XDG_STATE_HOME/private-github-pro-review
-```
-
-未设置 `XDG_STATE_HOME` 时使用：
-
-```text
-~/.local/state/private-github-pro-review
-```
-
-也可以通过 `PRIVATE_GITHUB_PRO_REVIEW_HOME` 指定其他目录。
-
-## 安全边界
-
-- 上传仓库和使用 ChatGPT 前必须得到用户明确许可。
-- 目标 GitHub 仓库必须保持私有。
-- 不执行强制推送或 Git 历史重写。
-- 不自动上传高风险凭据文件。
-- 不读取、复制或保存 GitHub Token、密码、Cookie、二次验证码或恢复码。
-- 不通过高频页面读取判断生成进度。
-- 浏览器证据只能说明本地观察到了什么，不能证明 ChatGPT 内部实际读取了哪些内容。
-
-完整执行规则见 [`SKILL.md`](SKILL.md)，已知限制见 [`KNOWN-ISSUES.md`](KNOWN-ISSUES.md)。
-
-## 测试
+## 验证与发布
 
 ```bash
-python3 -m unittest discover -s tests -p 'test_*.py'
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_*.py'
 ```
+
+候选提交及其公开安装包须通过测试和内容检查，再交给维护者复审。用户批准后才推送、打 tag、发布 Release 和升级正式 Vault 快照。Release Notes 取自 [CHANGELOG.md](CHANGELOG.md)，不重复维护另一份版本说明。
+
+`v2.0.0` 接续原 HubSage 版本线，标明用途转为 Pro review；旧 `v1.x` 的 tag、Release 和 Git 历史继续保留。[现有发布历史](https://github.com/Liii8888/HubSage/releases)。
 
 ## License
 
-MIT
+[MIT](LICENSE) — Copyright (c) 2026 Liii8888.

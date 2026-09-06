@@ -1,26 +1,31 @@
 # Changelog
 
-## Unreleased
+## v2.0.0
 
-### Added
+This version continues the HubSage release line as Private GitHub Pro Review.
+Publication dates are recorded by GitHub Releases; this file groups the version's changes.
 
-- Persistent private GitHub mirrors that preserve branches, tags, and reachable
-  repository history.
-- Isolated WIP publication for explicitly approved dirty worktrees.
-- GPT Pro and GPT Pro with Deep Research review modes.
-- Byte-for-byte prompt freezing with SHA-256 checks at every lifecycle stage.
-- Exact repository, default-branch, and review-commit binding with live drift
-  detection.
-- A single-active-run lock for each resolved local repository.
-- Strict completion evidence based on the recorded generation sentinel and the
-  expected final response container.
-- Bounded browser waiting, one controlled reconnect, and terminal handling for
-  access warnings or unknown UI states.
-- Final-answer provenance containing the conversation, tab, container, byte
-  count, and claimed and observed SHA-256 values.
-- Separate evidence domains for GitHub CLI authentication and ChatGPT GitHub App
-  authorization.
-- Fail-closed checks for credential paths, submodules, Git LFS pointers,
-  oversized GitHub blobs, and unsupported source states.
-- Read-only visibility for legacy run records without upgrading their evidence
-  claims.
+### Source and distribution
+
+- Establish one independent source repository and reviewed Skill Vault distribution snapshots.
+- Add deterministic export and verification from a full Git commit SHA, including source and distribution hashes, provenance, and license.
+- Preserve explicit invocation in both Skill frontmatter and Codex metadata.
+- Retain public portable state paths and sanitized field notes. Permit one declared, verifiable local default-state adaptation without moving existing review records.
+- Keep the review CLI and run schema 3 unchanged. Consolidate resolved issues here and current external limits in `KNOWN-ISSUES.md`.
+
+### Review workflow history
+
+Dates below describe implementation history, not separate software releases. The initial workflow, run hardening, and authentication changes were integrated into the approved Vault line on 2026-08-23 under the corresponding commits below.
+
+| Implemented | Approved Vault commit | Change |
+| --- | --- | --- |
+| 2026-08-19 | `f2f67ab` | Persistent private mirrors, branch/tag/history preservation, isolated approved worktree snapshots, exact Prompt submission, and review state tracking. |
+| 2026-08-20 | `30999d8` | Raw-byte patch handling; exact Pro and mode checks; source binding; controlled composer submission; immutable Prompt evidence; mirror naming; pre-submission correction; owned-tab cleanup; explicit run archival and raw-URL limitations. |
+| 2026-08-23 | `6232ef1` | Reuse valid GitHub authentication, retain user-owned credential steps, bound device-code recovery, and identify the active generation sentinel. |
+| 2026-08-23 | `2fd50b9` | Require matching completion evidence and final container; recheck source drift; serialize active runs; freeze Prompt bytes; verify answer provenance; separate CLI and App evidence; keep legacy records unverified. |
+
+The public repository adopted this workflow in [`8ef90a9`](https://github.com/Liii8888/HubSage/commit/8ef90a929f1c6a77f4a0772943a9e3aea8811218) on 2026-08-23. Portable defaults, public-distribution checks, and sanitized examples came with that publication; [`226c244`](https://github.com/Liii8888/HubSage/commit/226c24488afc80298d5643fd5f0f568470d1d63e) clarified the project guide.
+
+## Legacy HubSage v1.x
+
+Versions v1.0.0–v1.3.0 described the former repository-maintenance Skill. Their [tags and releases](https://github.com/Liii8888/HubSage/releases) remain historical records. Those version numbers are unrelated to the review run schema.

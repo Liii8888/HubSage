@@ -1,5 +1,6 @@
 ---
 name: private-github-pro-review
+disable-model-invocation: true
 description: "Use when the user explicitly asks to back up a local Git repository with its branches, tags, and history to one persistent private GitHub repository, then send an unchanged prompt to ChatGPT Pro or ChatGPT Pro with Deep Research, wait without repeated page scraping, and save the final answer."
 ---
 
