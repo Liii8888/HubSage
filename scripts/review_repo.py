@@ -781,6 +781,35 @@ def ensure_private_mirror(mirror: str, marker: str) -> tuple[dict[str, Any], boo
     return validate_mirror_info(mirror, marker, info), created
 
 
+def verified_upload_remote(stage: Path, mirror: str, run_id: str) -> str:
+    mirror_identity(mirror)
+    remote = f"{MANAGER}-upload-{run_id}"
+    # Only the disposable staging repository is changed. Use this same named
+    # remote for every subsequent read and push, including any pushurl rules.
+    git(stage, "remote", "add", remote, f"https://github.com/{mirror}.git")
+    allowed = {
+        (prefix + mirror + suffix + "\n").encode("ascii").lower()
+        for prefix in (
+            "https://github.com/", "https://github.com:443/",
+            "git@github.com:", "ssh://git@github.com/",
+            "ssh://git@github.com:22/",
+        )
+        for suffix in ("", ".git")
+    }
+    for direction, options in (("fetch", []), ("push", ["--push"])):
+        effective = run_bytes(
+            ["git", "remote", "get-url", *options, "--all", remote], cwd=stage
+        )
+        # Exact byte matching also rejects multiple destinations and embedded
+        # newlines. Never expose rewritten URLs, which may contain credentials.
+        if effective.lower() not in allowed:
+            abort(
+                f"effective Git {direction} URL does not match the verified GitHub "
+                "repository; inspect Git URL rewrite and remote configuration"
+            )
+    return remote
+
+
 def remote_refs(repo: Path, remote_url: str) -> dict[str, str]:
     result = run(["git", "ls-remote", remote_url], cwd=repo)
     refs: dict[str, str] = {}
@@ -866,8 +895,8 @@ def publish_backup(
     marker: str,
 ) -> dict[str, Any]:
     validate_mirror_info(mirror, marker, github_repo_info(mirror))
-    remote_url = f"https://github.com/{mirror}.git"
-    remote = remote_refs(stage, remote_url)
+    upload_remote = verified_upload_remote(stage, mirror, run_id)
+    remote = remote_refs(stage, upload_remote)
     if remote:
         run(
             [
@@ -875,7 +904,7 @@ def publish_backup(
                 "fetch",
                 "--quiet",
                 "--no-tags",
-                remote_url,
+                upload_remote,
                 "+refs/heads/*:refs/remotes/private-review/*",
             ],
             cwd=stage,
@@ -885,7 +914,7 @@ def publish_backup(
                 "git",
                 "fetch",
                 "--quiet",
-                remote_url,
+                upload_remote,
                 "+refs/tags/*:refs/private-review/tags/*",
             ],
             cwd=stage,
@@ -894,20 +923,20 @@ def publish_backup(
     for refname, object_id in sorted(staging["branches"].items()):
         branch = refname.removeprefix("refs/heads/")
         branch_destinations[branch] = publish_branch(
-            stage, remote_url, remote, branch, object_id, run_id
+            stage, upload_remote, remote, branch, object_id, run_id
         )
 
     tag_destinations: dict[str, str] = {}
     for refname, object_id in sorted(staging["tags"].items()):
         tag = refname.removeprefix("refs/tags/")
         tag_destinations[tag] = publish_tag(
-            stage, remote_url, remote, tag, object_id, run_id
+            stage, upload_remote, remote, tag, object_id, run_id
         )
 
     if staging["dirty"] or staging["source_branch"] is None:
         review_destination = publish_branch(
             stage,
-            remote_url,
+            upload_remote,
             remote,
             staging["review_ref"],
             staging["review_commit"],

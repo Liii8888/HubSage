@@ -1305,9 +1305,14 @@ class SecurityBoundaryTests(unittest.TestCase):
                 return subprocess.CompletedProcess(command_args, 0, '', '')
             if command_args[0] == 'git' and command_args[1] in {'ls-remote', 'push'}:
                 calls.append(command_args)
-                self.assertIn(f'https://github.com/{mirror}.git', command_args)
+                remote = command_args[2] if command_args[1] == 'ls-remote' else command_args[3]
+                self.assertTrue(remote.startswith(f'{MODULE.MANAGER}-upload-'))
+                options = ['--push'] if command_args[1] == 'push' else []
+                resolved = original(['git', 'remote', 'get-url', *options, '--all', remote],
+                                    cwd=kwargs['cwd'], check=True, capture_output=True, text=True)
+                self.assertEqual(resolved.stdout, f'https://github.com/{mirror}.git\n')
                 return subprocess.CompletedProcess(command_args, 0, '', '')
-            if command_args[0] == 'git' and any(str(a).startswith(('https://', 'git@')) for a in command_args[1:]):
+            if command_args[:3] != ['git', 'remote', 'add'] and command_args[0] == 'git' and any(str(a).startswith(('https://', 'git@')) for a in command_args[1:]):
                 raise AssertionError(f'unexpected network command: {command_args}')
             return original(command_args, **kwargs)
         args = SimpleNamespace(repo=str(repo), prompt_file=str(prompt), state_root=str(self.root/'state'),
@@ -1332,6 +1337,108 @@ class SecurityBoundaryTests(unittest.TestCase):
             self.assertLess(next(i for i,c in enumerate(calls) if c[0]=='gh' and f'repos/{mirror}' in c),
                             next(i for i,c in enumerate(calls) if c[:2]==['git','push']))
         return calls
+
+    def test_git_rewrites_cannot_upload_to_an_unverified_repository(self) -> None:
+        for rewrite in ('insteadOf', 'pushInsteadOf'):
+            with self.subTest(rewrite=rewrite):
+                repo = self.repository(rewrite)
+                head = commit_file(repo, 'repository.txt', 'synthetic private payload', 'base')
+                before = command('git', 'status', '--porcelain=v1', cwd=repo)
+                destination = self.root / f'{rewrite}-unverified.git'
+                init_repo(destination, bare=True)
+                config = self.root / f'{rewrite}.gitconfig'
+                mirror = 'tester/private-project'
+                command('git', 'config', '--file', str(config),
+                        f'url.{destination.as_uri()}.{rewrite}',
+                        f'https://github.com/{mirror}.git', cwd=self.root)
+                prompt = self.root / f'{rewrite}-prompt.txt'
+                prompt.write_text('synthetic review prompt')
+                state_root = self.root / f'{rewrite}-state'
+                marker = MODULE.DESCRIPTION_PREFIX + MODULE.project_key(repo.resolve())
+                args = SimpleNamespace(repo=str(repo), prompt_file=str(prompt), state_root=str(state_root),
+                                       mode='review', binding='source-chip', include_working_tree=False,
+                                       mirror=mirror, allow_sensitive_path=[], dry_run=False)
+                with mock.patch.dict(os.environ, {
+                    'GIT_CONFIG_GLOBAL': str(config), 'GIT_CONFIG_NOSYSTEM': '1',
+                    'GIT_ALLOW_PROTOCOL': 'file', 'GIT_TERMINAL_PROMPT': '0',
+                }), mock.patch.object(MODULE, 'active_github_owner', return_value='tester'), \
+                    mock.patch.object(MODULE, 'github_repo_info', return_value=mirror_metadata(mirror, marker)), \
+                    mock.patch.object(MODULE, 'github', side_effect=AssertionError('unexpected service call')), \
+                    mock.patch.object(MODULE, 'remote_refs', return_value={}) as remote_read, \
+                    redirect_stdout(io.StringIO()):
+                    # Git push is real and allowed to write the local bare repo.
+                    # The target guard must fail before remote read or any push.
+                    with self.assertRaisesRegex(MODULE.ReviewError, 'effective Git .* URL'):
+                        MODULE.command_publish(args)
+                    remote_read.assert_not_called()
+                self.assertEqual(command('git', 'for-each-ref', cwd=destination), '')
+                self.assertEqual(command('git', 'rev-parse', 'HEAD', cwd=repo), head)
+                self.assertEqual(command('git', 'status', '--porcelain=v1', cwd=repo), before)
+                self.assertEqual(command('git', 'remote', cwd=repo), '')
+                run_dir = next((state_root / 'runs').iterdir())
+                self.assertEqual(MODULE.load_run(run_dir)['status'], 'failed')
+
+    def test_same_github_repository_transport_rewrites_remain_supported(self) -> None:
+        mirror = 'tester/private-project'
+        for index, target in enumerate((
+            'https://github.com/tester/private-project.git',
+            'https://github.com:443/Tester/Private-Project',
+            'git@github.com:tester/private-project.git',
+            'ssh://git@github.com/tester/private-project',
+            'ssh://git@github.com:22/tester/private-project.git',
+        )):
+            for rewrite in ('insteadOf', 'pushInsteadOf'):
+                with self.subTest(target=target, rewrite=rewrite):
+                    repo = self.repository(f'transport-{index}-{rewrite}')
+                    command('git', 'config', f'url.{target}.{rewrite}',
+                            f'https://github.com/{mirror}.git', cwd=repo)
+                    remote = MODULE.verified_upload_remote(repo, mirror, 'fixture')
+                    self.assertEqual(command('git', 'remote', 'get-url', '--push', '--all', remote, cwd=repo), target)
+
+    def test_git_destination_identity_and_single_url_are_required(self) -> None:
+        mirror = 'tester/private-project'
+        for index, target in enumerate((
+            'https://example.invalid/tester/private-project.git',
+            'https://github.com/other/private-project.git',
+            'https://github.com/tester/other.git',
+            'http://github.com/tester/private-project.git',
+            'https://user:synthetic-password@github.com/tester/private-project.git',
+            'ssh://other@github.com/tester/private-project.git',
+            'https://github.com/tester/private-project.git?other',
+            'https://github.com/tester/private-project.git\n',
+            'https://github.com/tester/private-project.git\r',
+        )):
+            with self.subTest(target=target):
+                repo = self.repository(f'bad-target-{index}')
+                original_git = MODULE.git
+                def add_pushurl(*args, **kwargs):
+                    result = original_git(*args, **kwargs)
+                    if args[1:3] == ('remote', 'add'):
+                        # Git permits control characters in URL values even
+                        # when a URL rewrite subsection cannot contain them.
+                        command('git', 'config', f'remote.{args[3]}.pushurl', target, cwd=repo)
+                    return result
+                with mock.patch.object(MODULE, 'git', side_effect=add_pushurl):
+                    with self.assertRaisesRegex(MODULE.ReviewError, 'effective Git push URL') as raised:
+                        MODULE.verified_upload_remote(repo, mirror, 'fixture')
+                self.assertNotIn(target, str(raised.exception))
+                self.assertNotIn('synthetic-password', str(raised.exception))
+        for direction in ('url', 'pushurl'):
+            with self.subTest(direction=direction):
+                repo = self.repository(f'multiple-{direction}')
+                original_git = MODULE.git
+                def add_duplicate(*args, **kwargs):
+                    result = original_git(*args, **kwargs)
+                    if args[1:3] == ('remote', 'add'):
+                        command('git', 'config', '--add', f'remote.{args[3]}.{direction}',
+                                f'https://github.com/{mirror}.git', cwd=repo)
+                        if direction == 'pushurl':
+                            command('git', 'config', '--add', f'remote.{args[3]}.{direction}',
+                                    'https://github.com/other/unverified.git', cwd=repo)
+                    return result
+                with mock.patch.object(MODULE, 'git', side_effect=add_duplicate):
+                    with self.assertRaisesRegex(MODULE.ReviewError, 'effective Git .* URL'):
+                        MODULE.verified_upload_remote(repo, mirror, 'fixture')
 
     def test_abnormal_gh_host_still_publishes_and_reads_back_only_github_com(self) -> None:
         self.simulate_publish()

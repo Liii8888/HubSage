@@ -99,7 +99,9 @@ fail closed and require `--mirror owner/repository`.
 
 It then:
 
-- verifies the destination is private and has this Skill's project marker;
+- verifies the destination identity, private visibility, and this Skill's project
+  marker, then checks that Git's effective fetch and push URLs resolve to that
+  same GitHub repository before any transfer;
 - uploads every local branch, tag, and reachable history without deleting
   remote-only history;
 - archives a non-fast-forward local ref under a unique remote archival ref;

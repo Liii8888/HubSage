@@ -29,6 +29,16 @@ Publication dates are recorded by GitHub Releases; this file groups the version'
   on clone, directory-change, or checkout failure so a stale checkout cannot
   supply the installation script.
 
+### Data-boundary follow-up after candidate `0d2b429`
+
+- Bind Git reads and uploads to a checked staging remote. Resolve all effective
+  fetch and push URLs before transfer, rejecting Git URL rewrites to a different
+  host or repository and multiple destinations. Preserve standard HTTPS/SSH
+  rewrites for the same verified GitHub repository without changing user config.
+- Document the data sent to GitHub and ChatGPT, local-only records, credential
+  handling, and the distinction between the Skill's public distribution repository
+  and the user's private backup destination.
+
 ### Review workflow history
 
 Dates below describe implementation history, not separate software releases. The initial workflow, run hardening, and authentication changes were integrated into the approved Vault line on 2026-08-23 under the corresponding commits below.
