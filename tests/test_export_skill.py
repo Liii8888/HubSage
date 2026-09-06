@@ -71,20 +71,64 @@ class DistributionTests(unittest.TestCase):
         self.git("commit", "-qm", "later unreviewed exporter")
         default_head = self.git("rev-parse", "HEAD")
         installed = self.root / "installed"
-        # Exercise the documented installation commands with a local origin.
-        recipe = (ROOT / "README.md").read_text().split("```bash\n", 1)[1].split("```", 1)[0]
-        recipe = recipe.replace("FULL_REVIEWED_COMMIT_SHA", reviewed)
-        recipe = recipe.replace("https://github.com/Liii8888/HubSage.git", shlex.quote(str(self.repo)))
-        recipe = recipe.replace('"$HOME/.agents/skills/private-github-pro-review"', shlex.quote(str(installed)))
-        recipe = recipe.replace("python3 scripts/", shlex.quote(sys.executable) + " scripts/")
-        subprocess.run(["bash", "-eu", "-c", recipe], cwd=self.root, check=True,
-                       capture_output=True, text=True)
+        result = self.install_from_readme(reviewed)
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotEqual(reviewed, default_head)
         self.assertFalse(marker.exists())
         checkout = self.root / "private-github-pro-review"
         head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
         self.assertEqual(head, reviewed)
         MODULE.verify_snapshot(self.repo, reviewed, installed)
+
+    def install_from_readme(self, reviewed: str) -> subprocess.CompletedProcess[str]:
+        # Run the actual recipe with ordinary shell defaults, not an extra -e
+        # that could conceal a missing short-circuit in the documentation.
+        installed = self.root / "installed"
+        recipe = (ROOT / "README.md").read_text().split("```bash\n", 1)[1].split("```", 1)[0]
+        recipe = recipe.replace("FULL_REVIEWED_COMMIT_SHA", reviewed)
+        recipe = recipe.replace("https://github.com/Liii8888/HubSage.git", shlex.quote(str(self.repo)))
+        recipe = recipe.replace('"$HOME/.agents/skills/private-github-pro-review"', shlex.quote(str(installed)))
+        recipe = recipe.replace("python3 scripts/", shlex.quote(sys.executable) + " scripts/")
+        return subprocess.run(["bash", "-c", recipe], cwd=self.root, capture_output=True, text=True)
+
+    def test_readme_install_stops_when_stale_checkout_already_exists(self) -> None:
+        exporter = self.repo / "scripts/export_skill.py"
+        marker = self.root / "stale-exporter-executed"
+        exporter.write_text(f"from pathlib import Path\nPath({str(marker)!r}).touch()\n")
+        self.git("add", "scripts/export_skill.py")
+        self.git("commit", "-qm", "old unreviewed exporter")
+        stale_head = self.git("rev-parse", "HEAD")
+        stale = self.root / "private-github-pro-review"
+        subprocess.run(["git", "clone", "--quiet", str(self.repo), str(stale)], check=True)
+        shutil.copyfile(ROOT / "scripts/export_skill.py", exporter)
+        self.git("add", "scripts/export_skill.py")
+        self.git("commit", "-qm", "new reviewed exporter")
+        reviewed = self.git("rev-parse", "HEAD")
+        result = self.install_from_readme(reviewed)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(marker.exists())
+        self.assertFalse((self.root / "installed").exists())
+        self.assertEqual(subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=stale, text=True).strip(), stale_head)
+
+    def test_readme_install_stops_when_reviewed_sha_is_unavailable(self) -> None:
+        exporter = self.repo / "scripts/export_skill.py"
+        marker = self.root / "default-exporter-executed"
+        exporter.write_text(f"from pathlib import Path\nPath({str(marker)!r}).touch()\n")
+        self.git("add", "scripts/export_skill.py")
+        self.git("commit", "-qm", "unreviewed default exporter")
+        reviewed_repo = self.root / "reviewed-source"
+        subprocess.run(["git", "clone", "--quiet", str(self.repo), str(reviewed_repo)], check=True)
+        shutil.copyfile(ROOT / "scripts/export_skill.py", reviewed_repo / "scripts/export_skill.py")
+        subprocess.run(["git", "add", "scripts/export_skill.py"], cwd=reviewed_repo, check=True)
+        subprocess.run(["git", "-c", "user.name=Distribution Test", "-c", "user.email=distribution@example.invalid",
+                        "commit", "-qm", "reviewed but unavailable in origin"], cwd=reviewed_repo, check=True)
+        reviewed = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=reviewed_repo, text=True).strip()
+        result = self.install_from_readme(reviewed)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unable to read tree", result.stderr)
+        self.assertNotIn("can't open file", result.stderr)
+        self.assertFalse(marker.exists())
+        self.assertFalse((self.root / "installed").exists())
 
     def test_local_default_is_the_only_adaptation_and_explicit_environment_still_wins(self) -> None:
         local = str(self.root / 'legacy state "quoted"')

@@ -25,7 +25,9 @@ Publication dates are recorded by GitHub Releases; this file groups the version'
 - Require owned `0700` answer extraction directories and `0600` regular files;
   create them before writing answer bytes and reject unsafe inputs on collection.
 - Pin both the installation script and exported payload to the same reviewed
-  full SHA before executing any repository Python code.
+  full SHA before executing any repository Python code. Stop the command chain
+  on clone, directory-change, or checkout failure so a stale checkout cannot
+  supply the installation script.
 
 ### Review workflow history
 
