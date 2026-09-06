@@ -16,6 +16,9 @@ from pathlib import Path
 UPSTREAM = "https://github.com/Liii8888/HubSage"
 PAYLOAD = (
     "SKILL.md",
+    "README.md",
+    "CHANGELOG.md",
+    "scripts/export_skill.py",
     "KNOWN-ISSUES.md",
     "LICENSE",
     "agents/openai.yaml",

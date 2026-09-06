@@ -28,14 +28,18 @@ This Codex Skill maintains a persistent private GitHub backup and records the so
 使用 $private-github-pro-review，把当前仓库备份到长期私有 GitHub 仓库，并交给 GPT Pro + Deep Research 审查。
 ```
 
-CLI 入口保持为 `scripts/review_repo.py`。`publish --mode review` 使用 Pro + Deep Research，`--mode pro` 使用 Pro；完整参数可通过 `--help` 查看。执行约束和浏览器步骤见 [SKILL.md](SKILL.md) 与 [browser protocol](references/browser-protocol.md)。
+流程是：首次为项目创建私有备份库 → 上传本次版本 → 取得链接并与原审查要求一起粘贴到网页 ChatGPT → 选择 Pro → 等待并保存回答。后续修改、复审继续更新同一个库，审查后保留仓库。
+
+CLI 入口是 `scripts/review_repo.py`。先 `publish --repo /absolute/project/path`，成功后用 `prepare-review --run-dir ... --mode pro|review --prompt-file ...` 固定消息；默认采用粘贴库链接的方式。原审查要求保存为 `request.txt`，发送的完整消息保存为 `prompt.txt`。旧版一次提供 mode 和 Prompt 的 `publish` 命令继续兼容。
+
+`pro` 使用 Pro，`review` 使用 Pro + Deep Research；根据当次请求选择，不统一偏好。有未提交修改时，按用户意图选择 `--include-working-tree` 或 `--committed-only`；未说明范围时才询问。完整参数见 `--help`，执行步骤见 [SKILL.md](SKILL.md) 与 [browser protocol](references/browser-protocol.md)。
 
 ### 首次使用的小提示
 
 以下供首次配置或访问异常时按需参考，不增加每次运行的强制预检。
 
 - **ChatGPT 的 GitHub 连接**：确认网页版已连接 GitHub App／连接器，并能访问用于审查的私有备份库。本机 `gh` 登录和 ChatGPT 的连接授权需要分别配置。插件安装与连接方式见 [OpenAI 官方说明](https://learn.chatgpt.com/docs/plugins)。
-- **仓库权限范围**：如果经常新建备份库，并愿意授权所在账号或组织的全部仓库，建议在对应 GitHub App 的 `Repository access` 中选择 `All repositories`，省去逐库补授权。也可用 `Only select repositories`，但新建备份库后要把它加入授权列表。这里的全部授权仅适用于该 App 安装所在的账号或组织；它不会把私有库改成公开库。设置入口见 [GitHub 官方说明](https://docs.github.com/en/apps/using-github-apps/reviewing-and-modifying-installed-github-apps)。
+- **仓库权限范围**：建议首次连接时，在你接受该账号或组织全部仓库授权范围的前提下，在对应 GitHub App 的 `Repository access` 中选择 `All repositories`，一次配置后，新建项目的备份库也在授权范围内，无需每次补授权。也可用 `Only select repositories`，但新建备份库后要把它加入授权列表。这里的全部授权仅适用于该 App 安装所在的账号或组织；它不会把私有库改成公开库。设置入口见 [GitHub 官方说明](https://docs.github.com/en/apps/using-github-apps/reviewing-and-modifying-installed-github-apps)。
 - **Pro 模型**：使用前看看当前账号的网页模型选择器是否提供 `Pro`，发送前再确认当前对话已选中 `Pro`；具体模型名称以页面为准，`high`／`xhigh` 推理强度不能替代 Pro。`review` 模式还会使用 Deep Research。
 - **浏览器工具**：准备能操作已登录 ChatGPT 会话的受支持浏览器工具。例如使用 Chrome 时，按桌面端 `Computer Use` 设置提示安装配套插件和浏览器扩展，并连接实际登录的浏览器配置文件；本 Skill 不限定插件名称。参见 [浏览器扩展配置](https://learn.chatgpt.com/docs/chrome-extension#set-up-the-chrome-extension)。
 
@@ -44,7 +48,7 @@ CLI 入口保持为 `scripts/review_repo.py`。`publish --mode review` 使用 Pr
 | 内容 | 去向与用途 |
 | --- | --- |
 | 指定仓库的本地分支、tag、可达历史，以及明确批准的未提交快照 | 当前 GitHub CLI 账号下、通过身份与私有性检查的长期备份仓库。历史中已删除的文件也可能包含在备份内。 |
-| 用户的原始 Prompt 与选定审查来源 | 用户已登录的 `chatgpt.com` 对话；通过用户授权的 GitHub App 选择目标私有库作为审查来源。 |
+| 用户的原始审查要求、建库上传后取得的链接或选定来源 | 用户已登录的 `chatgpt.com` 对话；通过用户已授权的 GitHub 连接访问链接指向的私有库；也支持用户选择精确来源 chip。 |
 | 项目映射、Prompt 副本、来源证据和收集到的回答 | 本机配置的状态目录；回答提取先写入用户专用临时目录。 |
 | 登录与仓库访问权限 | 使用既有 GitHub CLI / Git 凭据机制和受支持的浏览器会话；不要求向 Agent 提供原始 token，不记录 token，不复制浏览器 cookie 或 profile。 |
 
@@ -52,13 +56,17 @@ CLI 入口保持为 `scripts/review_repo.py`。`publish --mode review` 使用 Pr
 
 Git 上传前会解析实际读取和上传地址，拒绝指向其他主机、其他仓库或多个目标的配置。指向同一 GitHub 仓库的标准 HTTPS／SSH 转换受支持；检查只在临时仓库内配置 remote，不修改用户的全局 Git 配置。
 
-- 保存分支、tag 和可达历史；未提交快照需明确授权，源仓库保持原状。
-- 固定 Prompt 字节、仓库与提交，验证发布后来源漂移，并限制每个本地仓库同时一个活动审查。
+- 每个项目一个私有备份库，保存分支、tag 和可达历史；未提交快照按用户选择纳入，忽略文件不上传，源仓库保持原状。
+- 固定原始审查要求和完整消息的字节、仓库与提交；上传后再组合链接。每个本地项目同时一个活动审查，防止下一次上传改变尚在审查的版本。
 - 分别记录 GitHub CLI 登录、GitHub App 授权、页面来源绑定和最终回答证据。
 - 上传和使用 ChatGPT 需要授权；不自动登录、强推或重写历史。凭据扫描会拦截已识别的路径和内容，逐路径覆盖需明确授权；有限识别规则无法发现所有种类的秘密。
 - 浏览器观察证明本地记录的页面状态，不证明 ChatGPT 内部实际检索了哪些内容。当前限制见 [KNOWN-ISSUES.md](KNOWN-ISSUES.md)。
 
 公开版默认使用 `$XDG_STATE_HOME/private-github-pro-review`，未设置时使用 `~/.local/state/private-github-pro-review`。`PRIVATE_GITHUB_PRO_REVIEW_HOME` 可显式覆盖；已有 `--state-root` 参数优先。使用本机适配的 Vault 快照时，其固定本机默认值优先于 XDG 默认值，显式环境变量和 CLI 参数仍可覆盖。
+
+中断后再次调用上传入口会返回已有任务和下一步，不会重复上传或发送。网页已经完成时可继续核对并收集；放弃某轮时，先确认网页审查结束或取消，再记录 `end` 解除占用。单纯超时、关闭标签或出现警告不会释放仍在审查的版本，结束也不会删除备份库。
+
+项目映射按本地仓库的实际路径保存。改名、搬家、切换 GitHub 账号或换状态目录时，需要先核对原映射，避免把同一项目意外分成两个备份。不同工作树使用同一备份时也需统一运行入口；当前不会跨机器协调上传。
 
 私有库映射、Prompt、回答和运行记录保存在状态目录，既不进入源码，也不进入公开安装包。`RUN_VERSION = 3` 是运行记录格式；旧记录继续按既有兼容规则只读展示。
 

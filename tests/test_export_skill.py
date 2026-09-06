@@ -26,7 +26,7 @@ class DistributionTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.repo = self.root / "source"
         self.repo.mkdir()
-        for relative in (*MODULE.PAYLOAD, "CHANGELOG.md"):
+        for relative in MODULE.PAYLOAD:
             target = self.repo / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / relative, target)
@@ -61,10 +61,8 @@ class DistributionTests(unittest.TestCase):
 
     def test_readme_install_executes_reviewed_exporter_after_default_branch_advances(self) -> None:
         exporter = self.repo / "scripts/export_skill.py"
-        shutil.copyfile(ROOT / "scripts/export_skill.py", exporter)
-        self.git("add", "scripts/export_skill.py")
-        self.git("commit", "-qm", "reviewed exporter")
-        reviewed = self.git("rev-parse", "HEAD")
+        # The exporter is part of the pinned distribution payload itself.
+        reviewed = self.ref
         marker = self.root / "unreviewed-exporter-executed"
         exporter.write_text(f"from pathlib import Path\nPath({str(marker)!r}).touch()\nraise SystemExit(91)\n")
         self.git("add", "scripts/export_skill.py")

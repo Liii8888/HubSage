@@ -15,7 +15,8 @@ import stat
 import subprocess
 import sys
 import tempfile
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
+from functools import wraps
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Iterator, Mapping
 
@@ -43,6 +44,7 @@ MAX_GITHUB_BLOB_BYTES = 100_000_000
 MANAGER = "private-github-pro-review"
 DESCRIPTION_PREFIX = f"Managed by {MANAGER}; project="
 RUN_VERSION = 3
+_UPLOAD_LOCK_FD: int | None = None
 COMPLETION_PROOF = "generation-sentinel-absent-and-final-container-present"
 SOURCE_CHIP_PENDING_ASSURANCE = "source-chip-pending-v1"
 SOURCE_CHIP_BOUND_ASSURANCE = "github-app-source-chip-exact-commit-v1"
@@ -62,6 +64,7 @@ GENERIC_REPOSITORY_NAMES = {
 ACTIVE_STATUSES = {
     "preparing",
     "prepared",
+    "uploaded",
     "published",
     "source-index-pending",
     "source-bound",
@@ -72,7 +75,7 @@ ACTIVE_STATUSES = {
     "reconnecting",
     "completed",
 }
-ARCHIVABLE_STATUSES = {"prepared", "collected", "blocked", "failed", "superseded"}
+ARCHIVABLE_STATUSES = {"prepared", "collected", "blocked", "failed", "superseded", "ended"}
 SUPERSEDEABLE_STATUSES = {
     "published",
     "source-index-pending",
@@ -130,6 +133,7 @@ def run(
         text=True,
         input=input_text,
         env=env,
+        pass_fds=(() if _UPLOAD_LOCK_FD is None else (_UPLOAD_LOCK_FD,)),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -158,6 +162,7 @@ def run_bytes(
         cwd=cwd,
         check=False,
         input=input_data,
+        pass_fds=(() if _UPLOAD_LOCK_FD is None else (_UPLOAD_LOCK_FD,)),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -223,6 +228,26 @@ def state_transaction(state_root: Path) -> Iterator[None]:
         yield
     finally:
         fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+@contextmanager
+def upload_execution(run_dir: Path) -> Iterator[None]:
+    """Hold a per-run lease, including in upload children, without a time limit."""
+    global _UPLOAD_LOCK_FD
+    descriptor = os.open(run_dir / ".upload.lock", os.O_RDWR | os.O_CREAT, 0o600)
+    previous = _UPLOAD_LOCK_FD
+    try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            abort("the publisher or its upload child is still running; resume after it exits")
+        _UPLOAD_LOCK_FD = descriptor
+        yield
+    finally:
+        _UPLOAD_LOCK_FD = previous
+        # Closing (not explicitly unlocking) keeps the lease held by any child
+        # still doing a transfer after its parent exits.
         os.close(descriptor)
 
 
@@ -387,6 +412,8 @@ def prepare_staging_repository(
     include_working_tree: bool,
     run_id: str,
     staging_parent: Path,
+    *,
+    committed_only: bool = False,
 ) -> dict[str, Any]:
     head = git(source, "rev-parse", "HEAD")
     head_tree = git(source, "rev-parse", "HEAD^{tree}")
@@ -395,9 +422,12 @@ def prepare_staging_repository(
         ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
         cwd=source,
     )
-    dirty = bool(status)
-    if dirty and not include_working_tree:
-        abort("working tree is dirty; commit it or pass --include-working-tree explicitly")
+    source_dirty = bool(status)
+    if include_working_tree and committed_only:
+        abort("choose either --include-working-tree or --committed-only")
+    if source_dirty and not include_working_tree and not committed_only:
+        abort("working tree is dirty; choose --include-working-tree or --committed-only explicitly")
+    dirty = source_dirty and include_working_tree
 
     untracked = git_paths(source, "ls-files", "--others", "--exclude-standard")
     ignored = git_paths(source, "ls-files", "--others", "--ignored", "--exclude-standard")
@@ -442,6 +472,7 @@ def prepare_staging_repository(
         "source_head_tree": head_tree,
         "source_branch": branch,
         "dirty": dirty,
+        "source_dirty": source_dirty,
         "untracked": sorted(untracked),
         "ignored": sorted(ignored),
         "review_commit": review_commit,
@@ -997,9 +1028,38 @@ def save_run(run_dir: Path, value: dict[str, Any]) -> None:
     write_json(run_dir / "run.json", value)
 
 
+def run_holds_source(state: dict[str, Any]) -> bool:
+    # A local warning cannot prove that the submitted web review stopped reading.
+    return state.get("status") in ACTIVE_STATUSES or (
+        state.get("status") == "blocked" and bool(state.get("conversation_url"))
+    )
+
+
+def next_action(state: dict[str, Any]) -> str:
+    status = state.get("status")
+    if status == "preparing":
+        return "wait-for-publisher-or-end-interrupted-upload"
+    if status == "uploaded":
+        return "prepare-review"
+    if status == "prepared":
+        return "archive-dry-run-before-upload"
+    if status in {"published", "source-index-pending", "source-bound"}:
+        return "continue-same-draft"
+    if status == "composer-ready":
+        return "inspect-owned-tab-before-send; never-resend-if-already-sent"
+    if status in {"submitted", "waiting", "pending", "reconnecting"}:
+        return "resume-saved-conversation; complete-and-collect-or-end-after-it-stops"
+    if status == "completed":
+        return "collect"
+    if status == "blocked" and state.get("conversation_url"):
+        return "end-after-confirming-saved-review-finished-or-cancelled"
+    return "start-next-review-if-requested"
+
+
 def displayed_run(state: dict[str, Any]) -> dict[str, Any]:
     result = dict(state)
     result["legacy_unverified"] = int(result.get("version", 1)) < RUN_VERSION
+    result["next_action"] = next_action(state)
     return result
 
 
@@ -1035,7 +1095,7 @@ def active_runs_for_source(
         state = load_run(path)
         if state.get("run_id") in excluded:
             continue
-        if state.get("status") not in ACTIVE_STATUSES:
+        if not run_holds_source(state):
             continue
         recorded = Path(str(state.get("source_repo", ""))).expanduser().resolve()
         if str(recorded) == source_value:
@@ -1072,18 +1132,28 @@ def verify_prompt_snapshot(run_dir: Path, state: dict[str, Any]) -> dict[str, An
     }
     if observed != expected:
         abort(f"frozen prompt byte drift: expected {expected}, got {observed}")
+    if state.get("review_input_version") == 1:
+        request_path = run_dir / "request.txt"
+        if request_path.is_symlink() or not request_path.is_file():
+            abort("original request is not a regular non-symlink file")
+        request = request_path.read_bytes()
+        if (sha256_bytes(request), len(request)) != (
+            state.get("request_sha256"), state.get("request_bytes")
+        ):
+            abort("original request byte drift")
+        if compose_review_prompt(request, str(state.get("mirror")), str(state.get("binding"))) != data:
+            abort("frozen prompt is not the verified URL plus unchanged original request")
     return observed
 
 
-def verify_published_identity(run_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
-    verify_prompt_snapshot(run_dir, state)
+def verify_uploaded_identity(run_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
     manifest_path = run_dir / "source-manifest.json"
     published_path = run_dir / "publish-result.json"
     if not manifest_path.is_file() or not published_path.is_file():
         abort("published identity requires source-manifest.json and publish-result.json")
     manifest = read_json(manifest_path)
     published = read_json(published_path)
-    if published.get("status") != "published" or published.get("mirror_private") is not True:
+    if published.get("status") not in {"uploaded", "published"} or published.get("mirror_private") is not True:
         abort("published identity requires a verified private publication")
     checks = (
         ("run_id", state.get("run_id"), manifest.get("run_id")),
@@ -1094,12 +1164,6 @@ def verify_published_identity(run_dir: Path, state: dict[str, Any]) -> dict[str,
         ("review_commit", state.get("review_commit"), published.get("review_commit")),
         ("mirror", state.get("mirror"), published.get("mirror")),
         ("review_branch", state.get("review_branch"), published.get("review_branch")),
-        ("binding", state.get("binding"), manifest.get("binding")),
-        ("binding", state.get("binding"), published.get("binding")),
-        ("prompt_sha256", state.get("prompt_sha256"), manifest.get("prompt_sha256")),
-        ("prompt_sha256", state.get("prompt_sha256"), published.get("prompt_sha256")),
-        ("prompt_bytes", state.get("prompt_bytes"), manifest.get("prompt_bytes")),
-        ("prompt_bytes", state.get("prompt_bytes"), published.get("prompt_bytes")),
         (
             "github_cli_owner",
             (state.get("github_cli_auth") or {}).get("owner"),
@@ -1118,8 +1182,30 @@ def verify_published_identity(run_dir: Path, state: dict[str, Any]) -> dict[str,
     }
 
 
-def verify_remote_review_commit(run_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
-    identity = verify_published_identity(run_dir, state)
+def verify_published_identity(run_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
+    identity = verify_uploaded_identity(run_dir, state)
+    verify_prompt_snapshot(run_dir, state)
+    if state.get("review_input_version") == 1:
+        receipt = read_json(run_dir / "review-input.json")
+        fields = ("run_id", "mode", "binding", "prompt_sha256", "prompt_bytes",
+                  "request_sha256", "request_bytes", "mirror", "review_commit")
+        documents = (receipt,)
+    else:
+        fields = ("binding", "prompt_sha256", "prompt_bytes")
+        documents = (read_json(run_dir / "source-manifest.json"),
+                     read_json(run_dir / "publish-result.json"))
+    for document in documents:
+        for key in fields:
+            expected = state.get(key)
+            if expected in {None, ""} or document.get(key) != expected:
+                abort(f"published identity drift for {key}")
+    return identity
+
+
+def verify_remote_review_commit(
+    run_dir: Path, state: dict[str, Any], *, require_prompt: bool = True
+) -> dict[str, Any]:
+    identity = (verify_published_identity if require_prompt else verify_uploaded_identity)(run_dir, state)
     mirror = str(identity["mirror"])
     expected_owner = mirror.split("/", 1)[0]
     stored_cli = state.get("github_cli_auth") or {}
@@ -1237,10 +1323,10 @@ def validate_source_evidence(
 def create_run(
     state_root: Path,
     source: Path,
-    mode: str,
-    prompt: bytes,
+    mode: str | None,
+    prompt: bytes | None,
     run_id: str,
-    binding: str = "source-chip",
+    binding: str | None = "source-chip",
 ) -> Path:
     source = source.resolve()
     ensure_private_directory(state_root)
@@ -1250,7 +1336,8 @@ def create_run(
     if run_dir.exists():
         abort(f"run directory collision: {run_dir}")
     ensure_private_directory(run_dir)
-    atomic_write(run_dir / "prompt.txt", prompt)
+    if prompt is not None:
+        atomic_write(run_dir / "prompt.txt", prompt)
     now = utc_now()
     write_json(
         run_dir / "run.json",
@@ -1260,9 +1347,9 @@ def create_run(
             "source_repo": str(source),
             "mode": mode,
             "binding": binding,
-            "prompt_sha256": sha256_bytes(prompt),
-            "prompt_bytes": len(prompt),
-            "binding_assurance": binding_assurance(binding, source_bound=False),
+            "prompt_sha256": sha256_bytes(prompt) if prompt is not None else None,
+            "prompt_bytes": len(prompt) if prompt is not None else None,
+            "binding_assurance": binding_assurance(binding, source_bound=False) if binding else None,
             "github_cli_auth": {"status": "unverified"},
             "github_app_auth": {"status": "unverified"},
             "status": "preparing",
@@ -1284,14 +1371,37 @@ def create_run(
 
 
 def command_publish(args: argparse.Namespace) -> None:
+    with ExitStack() as execution:
+        publish_with_lease(args, execution)
+
+
+def publish_with_lease(args: argparse.Namespace, execution: ExitStack) -> None:
     source = repository_root(args.repo)
-    prompt = read_prompt(args.prompt_file)
-    binding = getattr(args, "binding", "source-chip")
+    if bool(args.prompt_file) != bool(args.mode):
+        abort("provide both --mode and --prompt-file, or omit both and use prepare-review after upload")
+    prompt = read_prompt(args.prompt_file) if args.prompt_file else None
+    binding = (getattr(args, "binding", None) or "source-chip") if prompt is not None else None
+    if prompt is None and getattr(args, "binding", None):
+        abort("choose --binding in prepare-review after upload")
     state_root = Path(args.state_root).expanduser().resolve()
     run_id = make_run_id(source)
     with state_transaction(state_root):
+        active = active_runs_for_source(state_root, source)
+        if active and prompt is None:
+            if args.mirror and any(item.get("mirror") and item["mirror"] != args.mirror for item in active):
+                abort("requested mirror differs from the active project's mirror")
+            result = {"status": "resume-required", "upload_performed": False, "source_repo": str(source), "runs": [
+                {**displayed_run(item), "run_dir": str(state_root / "runs" / item["run_id"])}
+                for item in active
+            ]}
+            print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+            return
         require_no_active_run(state_root, source)
         run_dir = create_run(state_root, source, args.mode, prompt, run_id, binding)
+        execution.enter_context(upload_execution(run_dir))
+        run_state = load_run(run_dir)
+        run_state["publisher_lock"] = "flock-v1"
+        save_run(run_dir, run_state)
     allowed = {PurePosixPath(item).as_posix().lstrip("/") for item in args.allow_sensitive_path}
 
     try:
@@ -1301,6 +1411,7 @@ def command_publish(args: argparse.Namespace) -> None:
                 args.include_working_tree,
                 run_id,
                 Path(temporary),
+                committed_only=getattr(args, "committed_only", False),
             )
             payload = validate_backup_payload(
                 staging["stage"], staging["review_commit"], allowed
@@ -1313,13 +1424,14 @@ def command_publish(args: argparse.Namespace) -> None:
                 "source_head_tree": staging["source_head_tree"],
                 "source_branch": staging["source_branch"],
                 "working_tree_included": staging["dirty"],
+                "source_dirty": staging["source_dirty"],
                 "untracked_included": staging["untracked"] if staging["dirty"] else [],
                 "untracked_excluded": [] if staging["dirty"] else staging["untracked"],
                 "ignored_excluded": staging["ignored"],
                 "review_commit": staging["review_commit"],
                 "binding": binding,
-                "prompt_sha256": sha256_bytes(prompt),
-                "prompt_bytes": len(prompt),
+                "prompt_sha256": sha256_bytes(prompt) if prompt is not None else None,
+                "prompt_bytes": len(prompt) if prompt is not None else None,
                 "local_branches": staging["branches"],
                 "local_tags": staging["tags"],
                 "payload": payload,
@@ -1356,43 +1468,50 @@ def command_publish(args: argparse.Namespace) -> None:
                     "review_commit": staging["review_commit"],
                     "review_branch": staging["review_ref"],
                     "binding": binding,
-                    "binding_assurance": binding_assurance(binding, source_bound=False),
+                    "binding_assurance": binding_assurance(binding, source_bound=False) if binding else None,
                     "raw_repository_url": raw_repository_url,
-                    "prompt_sha256": sha256_bytes(prompt),
-                    "prompt_bytes": len(prompt),
+                    "prompt_sha256": sha256_bytes(prompt) if prompt is not None else None,
+                    "prompt_bytes": len(prompt) if prompt is not None else None,
                     "github_cli_auth": cli_auth,
                     "github_app_auth": {"status": "unverified"},
                 }
             else:
+                # Reserve the destination before the first remote side effect;
+                # a hard interruption can have created or partly uploaded it.
+                run_state = load_run(run_dir)
+                run_state.update({"mirror": mirror, "github_cli_auth": cli_auth,
+                                  "review_commit": staging["review_commit"]})
+                save_run(run_dir, run_state)
+                with state_transaction(state_root):
+                    projects = load_project_map(state_root)
+                    projects.setdefault("projects", {})[path_key] = {
+                        "mirror": mirror, "project_key": project_key(source),
+                        "updated_at": utc_now(),
+                    }
+                    save_project_map(state_root, projects)
                 _, created = ensure_private_mirror(mirror, marker)
                 published = publish_backup(staging["stage"], mirror, staging, run_id, marker=marker)
                 result = {
-                    "status": "published",
+                    "status": "published" if prompt is not None else "uploaded",
                     "run_id": run_id,
                     "run_dir": str(run_dir),
                     "source_repo": str(source),
                     "mirror": mirror,
                     "mirror_created": created,
                     "binding": binding,
-                    "binding_assurance": binding_assurance(binding, source_bound=False),
+                    "binding_assurance": binding_assurance(binding, source_bound=False) if binding else None,
                     "raw_repository_url": raw_repository_url,
-                    "prompt_sha256": sha256_bytes(prompt),
-                    "prompt_bytes": len(prompt),
+                    "prompt_sha256": sha256_bytes(prompt) if prompt is not None else None,
+                    "prompt_bytes": len(prompt) if prompt is not None else None,
                     "github_cli_auth": cli_auth,
                     "github_app_auth": {"status": "unverified"},
                     **published,
                 }
-                projects.setdefault("projects", {})[path_key] = {
-                    "mirror": mirror,
-                    "project_key": project_key(source),
-                    "updated_at": utc_now(),
-                }
-                save_project_map(state_root, projects)
 
             run_state = load_run(run_dir)
             run_state.update(result)
-            save_run(run_dir, run_state)
             write_json(run_dir / "publish-result.json", result)
+            save_run(run_dir, run_state)
             print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     except Exception as exc:
         run_state = load_run(run_dir)
@@ -1402,6 +1521,58 @@ def command_publish(args: argparse.Namespace) -> None:
         raise
 
 
+def compose_review_prompt(request: bytes, mirror: str, binding: str) -> bytes:
+    url = f"https://github.com/{mirror}".encode("ascii")
+    if binding == "source-chip":
+        return request
+    try:
+        require_raw_repository_url(request, mirror)
+        return request
+    except ReviewError:
+        return url + b"\n\n" + request
+
+
+def command_prepare_review(args: argparse.Namespace) -> None:
+    run_dir = managed_run_dir(args.run_dir)
+    with state_transaction(state_root_for_run(run_dir)):
+        state = load_run(run_dir)
+        require_current_run(state, "prepare-review")
+        if state.get("status") != "uploaded":
+            abort(f"prepare-review requires uploaded, got {state.get('status')}; resume this run instead")
+        verify_remote_review_commit(run_dir, state, require_prompt=False)
+        request = read_prompt(args.prompt_file)
+        prompt = compose_review_prompt(request, state["mirror"], args.binding)
+        receipt = {
+            "review_input_version": 1, "run_id": state["run_id"],
+            "mode": args.mode, "binding": args.binding,
+            "mirror": state["mirror"], "review_commit": state["review_commit"],
+            "request_sha256": sha256_bytes(request), "request_bytes": len(request),
+            "prompt_sha256": sha256_bytes(prompt), "prompt_bytes": len(prompt),
+        }
+        atomic_write(run_dir / "request.txt", request)
+        atomic_write(run_dir / "prompt.txt", prompt)
+        write_json(run_dir / "review-input.json", receipt)
+        state.update(receipt)
+        state.update({
+            "status": "published",
+            "binding_assurance": binding_assurance(args.binding, source_bound=False),
+            "raw_repository_url": f"https://github.com/{state['mirror']}" if args.binding == "raw-url" else None,
+        })
+        verify_published_identity(run_dir, state)
+        save_run(run_dir, state)
+    print(json.dumps(displayed_run(state), ensure_ascii=False, indent=2, sort_keys=True))
+
+
+def locked_run_command(function):
+    @wraps(function)
+    def command(args: argparse.Namespace) -> None:
+        run_dir = managed_run_dir(args.run_dir)
+        with state_transaction(state_root_for_run(run_dir)):
+            function(args)
+    return command
+
+
+@locked_run_command
 def command_event(args: argparse.Namespace) -> None:
     run_dir = managed_run_dir(args.run_dir)
     state = load_run(run_dir)
@@ -1543,10 +1714,10 @@ def command_event(args: argparse.Namespace) -> None:
             state["active_wait"] = evidence
         state["status"] = "waiting"
     elif event == "wait-complete":
-        if status != "waiting":
-            abort(f"wait-complete requires waiting, got {status}")
+        if status not in {"waiting", "pending"}:
+            abort(f"wait-complete requires waiting or pending, got {status}")
         if version >= RUN_VERSION:
-            active_wait = state.get("active_wait")
+            active_wait = state.get("active_wait" if status == "waiting" else "last_incomplete_wait")
             if not isinstance(active_wait, dict):
                 abort("wait-complete requires recorded active wait evidence")
             if args.completion_proof != COMPLETION_PROOF:
@@ -1569,14 +1740,23 @@ def command_event(args: argparse.Namespace) -> None:
                     f"{expected_container}, got {args.final_container}"
                 )
             tab = require_active_owned_tab(state, args.tab_id)
+            same_tab = args.tab_id == active_wait.get("tab_id")
+            old_tab = state.get("owned_tabs", {}).get(active_wait.get("tab_id"), {})
+            replacement = (
+                status == "pending" and old_tab.get("closed_at")
+                and old_tab.get("close_reason") == "disconnected"
+                and old_tab.get("url") == state.get("conversation_url")
+            )
             if (
-                args.tab_id != active_wait.get("tab_id")
+                not (same_tab or replacement)
                 or tab.get("kind") != "chatgpt-conversation"
                 or tab.get("url") != state.get("conversation_url")
+                or active_wait.get("conversation_url") != state.get("conversation_url")
             ):
-                abort("wait-complete requires the same active saved conversation tab")
+                abort("wait-complete requires the same active saved conversation tab or its recorded disconnected replacement")
             evidence = {
                 "wait_sequence": active_wait.get("wait_sequence"),
+                "wait_tab_id": active_wait.get("tab_id"),
                 "generation_sentinel": args.generation_sentinel,
                 "completion_proof": args.completion_proof,
                 "final_container": args.final_container,
@@ -1610,7 +1790,9 @@ def command_event(args: argparse.Namespace) -> None:
         state["reconnect_count"] = int(state.get("reconnect_count", 0)) + 1
         state["status"] = "reconnecting"
     elif event == "warning":
-        if status in {"collected", "blocked", "failed", "superseded", "archived"}:
+        if status in {"preparing", "uploaded", "prepared"}:
+            abort("warning requires the browser phase; it cannot release a publisher")
+        if status in {"collected", "blocked", "failed", "superseded", "archived", "ended"}:
             abort(f"warning is invalid after terminal state {status}")
         state["status"] = "blocked"
         state["warning"] = args.message or "browser access-frequency warning"
@@ -1631,6 +1813,7 @@ def command_event(args: argparse.Namespace) -> None:
     print(json.dumps(displayed_run(state), ensure_ascii=False, indent=2, sort_keys=True))
 
 
+@locked_run_command
 def command_tab(args: argparse.Namespace) -> None:
     run_dir = managed_run_dir(args.run_dir)
     state = load_run(run_dir)
@@ -1661,7 +1844,7 @@ def command_tab(args: argparse.Namespace) -> None:
         if (
             tab.get("kind") == "chatgpt-conversation"
             and state.get("status")
-            not in {"collected", "blocked", "failed", "superseded"}
+            not in {"collected", "blocked", "failed", "superseded", "ended"}
             and args.reason != "disconnected"
         ):
             abort("the active saved conversation must remain open until the run is terminal")
@@ -1686,6 +1869,7 @@ def command_tab(args: argparse.Namespace) -> None:
     print(json.dumps(displayed_run(state), ensure_ascii=False, indent=2, sort_keys=True))
 
 
+@locked_run_command
 def command_supersede(args: argparse.Namespace) -> None:
     old_dir = managed_run_dir(args.run_dir)
     old_state = load_run(old_dir)
@@ -1726,13 +1910,12 @@ def command_supersede(args: argparse.Namespace) -> None:
     source = Path(str(old_state.get("source_repo")))
     run_id = make_run_id(source)
     state_root = state_root_for_run(old_dir)
-    with state_transaction(state_root):
-        require_no_active_run(
-            state_root, source, excluding={str(old_state.get("run_id"))}
-        )
-        new_dir = create_run(
-            state_root, source, args.mode, prompt, run_id, args.binding
-        )
+    require_no_active_run(
+        state_root, source, excluding={str(old_state.get("run_id"))}
+    )
+    new_dir = create_run(
+        state_root, source, args.mode, prompt, run_id, args.binding
+    )
     new_manifest = dict(manifest)
     new_manifest["run_id"] = run_id
     new_manifest["reused_from_run"] = old_state.get("run_id")
@@ -1803,15 +1986,46 @@ def command_list(args: argparse.Namespace) -> None:
             if not path.is_dir() or not marker.is_file():
                 continue
             state = displayed_run(load_run(path))
-            if args.all or state.get("status") in ACTIVE_STATUSES:
+            if args.all or run_holds_source(state):
                 results.append(state)
     print(json.dumps({"runs": results}, ensure_ascii=False, indent=2, sort_keys=True))
 
 
+def command_end(args: argparse.Namespace) -> None:
+    run_dir = managed_run_dir(args.run_dir)
+    with state_transaction(state_root_for_run(run_dir)), upload_execution(run_dir):
+        state = load_run(run_dir)
+        if not run_holds_source(state) and state.get("status") != "blocked":
+            abort(f"end requires an unfinished run, got {state.get('status')}")
+        if not args.reason.strip():
+            abort("end requires a non-empty reason")
+        if (state.get("status") == "preparing" and state.get("publisher_lock") != "flock-v1"
+                and not getattr(args, "publisher_stopped", False)):
+            abort("legacy preparing run has no publisher lease; confirm the old publisher and all Git/gh children stopped, then use --publisher-stopped")
+        url = state.get("conversation_url")
+        if url:
+            if args.conversation_url != url or args.observed not in {"finished", "cancelled"}:
+                abort("end requires the saved conversation URL and an observed finished or cancelled review")
+        elif args.observed != "not-submitted" or args.conversation_url:
+            abort("end requires confirmation that this run was not submitted")
+        evidence = {"observed": args.observed, "conversation_url": url,
+                    "publisher_stopped": bool(getattr(args, "publisher_stopped", False)),
+                    "reason": args.reason, "at": utc_now()}
+        state["ended_from_status"] = state.get("status")
+        state["status"] = "ended"
+        state["end_evidence"] = evidence
+        append_event(run_dir, {"event": "ended", "status": "ended", "evidence": evidence, "at": utc_now()})
+        save_run(run_dir, state)
+    print(json.dumps(displayed_run(state), ensure_ascii=False, indent=2, sort_keys=True))
+
+
+@locked_run_command
 def command_archive(args: argparse.Namespace) -> None:
     run_dir = managed_run_dir(args.run_dir)
     state = load_run(run_dir)
     status = state.get("status")
+    if status == "blocked" and state.get("conversation_url"):
+        abort("archive cannot release a submitted review; confirm it has stopped and use end first")
     if status not in ARCHIVABLE_STATUSES:
         abort(
             "archive is manual and requires prepared, collected, blocked, failed, "
@@ -1828,6 +2042,7 @@ def command_archive(args: argparse.Namespace) -> None:
     print(json.dumps(displayed_run(state), ensure_ascii=False, indent=2, sort_keys=True))
 
 
+@locked_run_command
 def command_collect(args: argparse.Namespace) -> None:
     run_dir = managed_run_dir(args.run_dir)
     state = load_run(run_dir)
@@ -1925,15 +2140,33 @@ def build_parser() -> argparse.ArgumentParser:
 
     publish = subparsers.add_parser("publish", help="back up a repository and create a review run")
     publish.add_argument("--repo", required=True)
-    publish.add_argument("--mode", choices=("review", "pro"), required=True)
-    publish.add_argument("--prompt-file", required=True)
-    publish.add_argument("--binding", choices=("source-chip", "raw-url"), default="source-chip")
-    publish.add_argument("--include-working-tree", action="store_true")
+    publish.add_argument("--mode", choices=("review", "pro"))
+    publish.add_argument("--prompt-file")
+    publish.add_argument("--binding", choices=("source-chip", "raw-url"))
+    scope = publish.add_mutually_exclusive_group()
+    scope.add_argument("--include-working-tree", action="store_true")
+    scope.add_argument("--committed-only", action="store_true")
     publish.add_argument("--mirror")
     publish.add_argument("--allow-sensitive-path", action="append", default=[])
     publish.add_argument("--state-root", default=str(DEFAULT_STATE_ROOT))
     publish.add_argument("--dry-run", action="store_true")
     publish.set_defaults(func=command_publish)
+
+    prepare = subparsers.add_parser("prepare-review", help="freeze the verified repo URL and unchanged review request after upload")
+    prepare.add_argument("--run-dir", required=True)
+    prepare.add_argument("--mode", choices=("review", "pro"), required=True)
+    prepare.add_argument("--prompt-file", required=True)
+    prepare.add_argument("--binding", choices=("raw-url", "source-chip"), default="raw-url")
+    prepare.set_defaults(func=command_prepare_review)
+
+    end = subparsers.add_parser("end", help="release an unfinished run after observing that its review has stopped")
+    end.add_argument("--run-dir", required=True)
+    end.add_argument("--observed", choices=("not-submitted", "finished", "cancelled"), required=True)
+    end.add_argument("--conversation-url")
+    end.add_argument("--reason", required=True)
+    end.add_argument("--publisher-stopped", action="store_true",
+                     help="legacy preparing runs only: record that the publisher and all upload children have stopped")
+    end.set_defaults(func=command_end)
 
     event = subparsers.add_parser("event", help="record one bounded browser transition")
     event.add_argument("--run-dir", required=True)

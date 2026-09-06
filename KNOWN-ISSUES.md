@@ -6,6 +6,9 @@
 
 - ChatGPT UI labels and controls can change. Visible semantic readback remains
   mandatory; the Skill intentionally has no private API fallback.
+- Project identity is the resolved local repository path in one state directory.
+  Folder moves, multiple worktrees/state directories, and other machines require
+  mapping reconciliation; the local run lock does not coordinate those writers.
 - GitHub App indexing latency is controlled by ChatGPT/GitHub. The Skill records
   pending state but cannot accelerate it and must not poll.
 - Browser evidence is operator-observed and recorded, not cryptographically

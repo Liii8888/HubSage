@@ -11,7 +11,7 @@ Publication dates are recorded by GitHub Releases; this file groups the version'
 - Add deterministic export and verification from a full Git commit SHA, including source and distribution hashes, provenance, and license.
 - Preserve explicit invocation in both Skill frontmatter and Codex metadata.
 - Retain public portable state paths and sanitized field notes. Permit one declared, verifiable local default-state adaptation without moving existing review records.
-- Keep the review CLI and run schema 3 unchanged. Consolidate resolved issues here and current external limits in `KNOWN-ISSUES.md`.
+- Keep existing review CLI forms compatible and retain run schema 3. Consolidate resolved issues here and current external limits in `KNOWN-ISSUES.md`.
 
 ### Security fixes after candidate `3b70e59`
 
@@ -38,6 +38,24 @@ Publication dates are recorded by GitHub Releases; this file groups the version'
 - Document the data sent to GitHub and ChatGPT, local-only records, credential
   handling, and the distinction between the Skill's public distribution repository
   and the user's private backup destination.
+
+### SOP and recovery follow-up after candidate `f21e702`
+
+- Keep one persistent private backup per local project: create it on first use,
+  update it for later reviews, and retain it after collection. Document one-time
+  optional All repositories authorization and project-path mapping limits.
+- Allow upload before choosing the review mode or preparing its text. A new
+  `prepare-review` command freezes the verified repository link and unchanged
+  original request separately; the earlier combined command remains compatible.
+- Support an explicit committed-only scope for dirty worktrees, alongside approved
+  WIP snapshots. Neither Pro mode nor WIP scope is a universal preference.
+- Return an existing run and its next step from the upload-only entrypoint.
+  Complete pending reviews through the original strict proof, including a
+  disconnected tab's verified replacement, without resetting wait limits.
+- Keep submitted warning states active until their saved review is confirmed
+  ended. Add evidence-preserving `end` and a per-run upload execution lock that
+  also covers transfer children; interrupted uploads retain their target mapping.
+- Shorten the Skill to the main SOP and keep browser details in the protocol.
 
 ### Review workflow history
 

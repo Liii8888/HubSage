@@ -18,7 +18,8 @@ For one run, the browser side may perform:
 - one new saved-chat navigation;
 - one targeted visible-capability read;
 - one targeted Deep Research state read;
-- one GitHub App grant check and one exact source binding/readback;
+- at most one GitHub App grant check when existing authorization is unknown,
+  and one exact source binding/readback;
 - one single-operation composer fill and one value readback;
 - one send-button click;
 - one long completion wait, plus one more only after a genuine disconnect;
@@ -73,13 +74,16 @@ Deep Research is a separate state:
 - `review`: Pro visible and Deep Research active.
 - `pro`: Pro visible and Deep Research inactive.
 
-Do not repair a mismatch by silently changing run metadata. Before submission,
+Select the mode from the current user request; neither mode is preferred for
+all users. Do not repair a mismatch by silently changing run metadata. Before submission,
 close abandoned run-owned tabs and use `supersede` so the corrected run has its
 own evidence.
 
 ## Source Binding
 
-Verify GitHub App authorization separately from ChatGPT source indexing.
+Reuse an already established GitHub App grant. Check authorization separately
+from source indexing when access is unknown or fails; do not reopen App settings
+on every review or change the user's repository permissions automatically.
 
 ### Source Chip
 
@@ -96,8 +100,9 @@ evidence chain; it does not attest ChatGPT's internal retrieval.
 
 ### Raw URL
 
-Use only when the run was published with `binding=raw-url`. The exact repository
-URL must already be part of the unchanged prompt. Do not add a generic GitHub
+This is the default route for `prepare-review`. After a verified upload it
+combines the repository URL and unchanged request into frozen `prompt.txt`.
+The legacy combined `publish` form still requires the URL already in its Prompt. Do not add a generic GitHub
 plugin pill, switch the conversation to Work, or describe this as source-chip
 indexing. Still verify repository privacy, default branch, commit, and App grant
 as recorded evidence.
@@ -197,7 +202,51 @@ the same conversation URL, active tab, and final-container kind recorded by
 resulting evidence proves the archived local bytes and their asserted browser
 source, not cryptographic provenance from ChatGPT.
 
-## One Recovery
+## Resume or End an Interrupted Run
+
+`show` and an upload-only `publish` return `next_action` for the existing run.
+Neither uploads again nor sends a message. Use the saved conversation URL;
+never create another chat merely because the local record says `pending`.
+
+After a later requested resume, make one targeted completion-state observation.
+If the page has finished, `wait-complete` also accepts `pending` using the
+recorded `last_incomplete_wait`. All sentinel, final-container, Prompt, and
+conversation checks still apply; no extra wait or reconnect is charged. If it
+is still generating and the wait budget is exhausted, keep it pending.
+
+If the old tab actually disconnected, record its close, then register and
+activate a replacement saved-conversation tab with exactly the same URL.
+Pending completion may use that replacement; evidence retains the original
+wait tab as well. An unrelated tab or a different conversation is rejected.
+
+If abandoning a run, first observe in the saved conversation that generation
+finished or was cancelled. Preserve an available answer through collection when
+it is still wanted. To release a deliberately abandoned submitted run:
+
+```bash
+python3 <skill-dir>/scripts/review_repo.py end --run-dir /absolute/run \
+  --observed cancelled --conversation-url https://chatgpt.com/c/CONVERSATION \
+  --reason "review cancelled in its saved conversation"
+```
+
+Use `finished` instead if that is what was observed. For a run actually never
+sent, use `--observed not-submitted` without a conversation URL. If Send happened
+before recording was interrupted, record the existing submission first; local
+`composer-ready` is not permission to assert that no message was sent.
+
+`end` retains every record and the private repository. It will not release an
+upload while the publisher or its transfer child holds the execution lock.
+For an old `preparing` run without that lock contract, first stop and verify the
+old publisher and all Git/gh children have exited; only then add
+`--publisher-stopped`. Never infer this from the run's age or a missing PID.
+A partially uploaded backup stays mapped to the project, so the next upload
+finishes against that same destination instead of leaving abandoned copies.
+
+A submitted `blocked` run still protects its source. `archive` cannot bypass
+that protection; record the observed end first. Timeouts and closed tabs are
+not proof that the web review stopped reading the repository.
+
+### One disconnected-session recovery
 
 Use the single recovery only for a disconnected browser session, closed tab, or
 wait transport failure. Reopen the recorded conversation URL, make one targeted
@@ -221,3 +270,53 @@ For frequent-access, unusual-automation, or rate-limit warnings:
 3. optionally capture one diagnostic screenshot;
 4. do not dismiss, reload, resubmit, or open a replacement conversation; and
 5. leave the saved conversation and run evidence intact for human inspection.
+
+
+## CLI evidence examples
+
+Use actual observed values for the placeholders. `--deep-research` is `inactive`
+and the final container is `assistant-turn` in `pro` mode; they are `active` and
+`deep-research-report` in `review` mode. The CLI only records observations.
+
+```bash
+python3 <skill-dir>/scripts/review_repo.py tab --run-dir /absolute/run \
+  --action register --tab-id TAB --kind chatgpt-draft --url https://chatgpt.com/
+python3 <skill-dir>/scripts/review_repo.py tab --run-dir /absolute/run \
+  --action activate --tab-id TAB
+python3 <skill-dir>/scripts/review_repo.py event --run-dir /absolute/run \
+  --event source-bound --capability-label Pro --deep-research <active-or-inactive> \
+  --app-grant verified --binding raw-url --repository owner/repository \
+  --default-branch BRANCH --commit COMMIT --tab-id TAB
+python3 <skill-dir>/scripts/review_repo.py event --run-dir /absolute/run \
+  --event composer-ready --prompt-sha256 PROMPT_SHA256 \
+  --fill-method single-operation --tab-id TAB
+```
+
+After clicking Send once and observing the saved URL:
+
+```bash
+python3 <skill-dir>/scripts/review_repo.py event --run-dir /absolute/run \
+  --event submitted --conversation-url https://chatgpt.com/c/CONVERSATION \
+  --submission-method send-button --tab-id TAB
+python3 <skill-dir>/scripts/review_repo.py event --run-dir /absolute/run \
+  --event wait-start --generation-sentinel OBSERVED_SENTINEL --tab-id TAB
+```
+
+After the bounded wait and full completion proof, extract into the private file
+created by the example above, then collect:
+
+```bash
+python3 <skill-dir>/scripts/review_repo.py event --run-dir /absolute/run \
+  --event wait-complete --generation-sentinel OBSERVED_SENTINEL \
+  --completion-proof generation-sentinel-absent-and-final-container-present \
+  --final-container <assistant-turn-or-deep-research-report> --tab-id TAB
+python3 <skill-dir>/scripts/review_repo.py collect --run-dir /absolute/run \
+  --answer-file /private/tmp/pgpr-answer-RANDOM/answer.md --answer-sha256 ANSWER_SHA256 \
+  --source-kind <assistant-turn-or-deep-research-report> \
+  --source-conversation-url https://chatgpt.com/c/CONVERSATION --source-tab-id TAB
+```
+
+For a pre-submission correction, close abandoned owned tabs and use `supersede`
+with the corrected mode, binding, reason, and complete message file. When using
+`raw-url`, that replacement message must contain the exact verified URL; retain
+the user's requirements unchanged. The old combined CLI remains supported.

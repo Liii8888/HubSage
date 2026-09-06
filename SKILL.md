@@ -1,296 +1,135 @@
 ---
 name: private-github-pro-review
 disable-model-invocation: true
-description: "Use when the user explicitly asks to back up a local Git repository with its branches, tags, and history to one persistent private GitHub repository, then send an unchanged prompt to ChatGPT Pro or ChatGPT Pro with Deep Research, wait without repeated page scraping, and save the final answer."
+description: "Use when the user explicitly asks to back up a local Git repository to its persistent private GitHub repository, then review it in ChatGPT Pro with their chosen mode and unchanged review requirements, and save the final answer."
 ---
 
 # Private GitHub Pro Review
 
-Back up one local Git repository to one long-lived private GitHub repository,
-bind that exact source in a fresh saved ChatGPT conversation, submit the user's
-unchanged prompt once, and collect the final answer once.
+Upload the requested local project to its private GitHub backup, paste the
+verified repository link and the user's review requirements into ChatGPT Pro,
+and save the completed review. First use creates the backup; later reviews
+update the same repository. Keep the backup after collecting the answer.
 
-## Hard Boundaries
+## Scope the review
 
-- Run only after explicit permission to upload the repository and use ChatGPT.
-- Use `review` for Pro with Deep Research and `pro` for Pro without it. Do not
-  split one requested review into multiple independent conversations.
-- Send the prompt byte-for-byte. Do not prepend, append, summarize, or improve it.
-- Keep one persistent private GitHub backup per local repository. Never create a
-  new remote per review, delete remote-only refs, force-push, or rewrite history.
-- Keep only one active review run per resolved local repository path. The
-  publisher serializes run creation and rejects a second active run; finish,
-  block/archive, or explicitly supersede the first run instead.
-- A disposable clone is staging only. Do not change the source repository's
-  branch, index, worktree, remotes, or commits.
-- Do not upload credentials silently. User-approved private content is allowed;
-  high-confidence credential paths require an explicit per-path override.
-- Use the supported connected browser. Do not use private ChatGPT APIs, copy
-  cookies or profiles, or automate ChatGPT through raw Playwright.
-- Do not poll page content. Follow
-  [references/browser-protocol.md](references/browser-protocol.md) exactly; only
-  its bounded generation-sentinel fallback is allowed when an event wait is
-  demonstrably unavailable.
+Use this Skill only when the user explicitly requests it and authorizes the
+repository upload and ChatGPT review. Reuse authorization already given for the
+same work. Resolve the Skill directory as `<skill-dir>`.
 
-## Publish The Persistent Backup
+Choose from the current request, not a universal preference:
 
-Resolve this Skill directory as `<skill-dir>`. Required inputs are the repository
-root, `review` or `pro`, a UTF-8 prompt file, and a binding:
+- `pro` means Pro without Deep Research; `review` means Pro with Deep Research.
+  Both require visibly selected Pro before sending.
+- If the user wants their current changes reviewed, include uncommitted changes
+  with `--include-working-tree`. If they want only committed code, use
+  `--committed-only`. A dirty checkout without either choice stops for clarification.
+- Preserve the user's review requirements exactly in a UTF-8 file. Only ask
+  about mode or scope when it cannot be determined from their request.
 
-- `source-chip` (default): bind the exact private repository in ChatGPT.
-- `raw-url`: use only when explicitly chosen. The exact
-  `https://github.com/owner/repository` URL must already be present unchanged in
-  the prompt; do not add a generic GitHub plugin pill or claim connector indexing.
+One project means one resolved local Git root, with one mapping in the selected
+state directory. Do not run the same project through competing state directories
+or move its folder without reconciling that mapping.
 
-### GitHub CLI authentication preflight
+## 1. Upload the project
 
-Before invoking the publisher, run `gh auth status -h github.com` and verify the
-active account is the intended repository owner. If it succeeds, skip the entire
-browser/device authorization flow. Do not refresh a valid login merely because a
-new review is starting.
-
-If the login is missing or invalid, proceed only with the user's explicit
-permission to authenticate GitHub for this Skill. Run:
+Use the intended existing GitHub CLI account. If authentication is invalid,
+follow the conditional login recovery in the [browser protocol](references/browser-protocol.md);
+do not reset a valid login. First-use GitHub App and browser setup tips are in
+[README.md](README.md#首次使用的小提示); they are not a mandatory repeated checklist.
 
 ```bash
-gh auth login -h github.com --web --git-protocol https
+python3 <skill-dir>/scripts/review_repo.py publish --repo /absolute/project/path
 ```
 
-Within this Skill only, Codex may enter the one-time device code in the supported
-browser and click the GitHub CLI authorization button when the user has explicitly
-authorized that automation. Never read or enter the user's password, passkey,
-authenticator code, recovery code, or GitHub Mobile confirmation. Hand those
-controls to the user and wait.
+Add the selected working-tree flag when applicable. Read the result:
 
-After a user completes GitHub's sudo-mode confirmation, the original device code
-may already have expired. If so, generate one fresh device code and complete it
-immediately; never reuse an expired code or loop through repeated login attempts.
-If that single fresh retry fails, stop and report the authentication blocker.
+- `uploaded` and `mirror_private: true`: save the returned `run_dir` and URL.
+- `resume-required`: continue the listed run according to `next_action`; nothing
+  was uploaded. Do not make another conversation or overwrite its review source.
+- `prepared`: this was a dry run, not an upload. Archive it before publishing.
+- An error: resolve the stated cause; never claim the upload succeeded.
 
-Finally, rerun `gh auth status -h github.com` and verify the intended active
-account before publishing. Do not print, copy, inspect, or persist the OAuth token.
-This conditional authorization is part of this Skill's GitHub publishing SOP and
-does not grant permission to automate authentication for unrelated workflows.
+The project mapping selects the same private backup on subsequent reviews.
+For a first-use name that cannot be inferred, use `--mirror owner/repository`.
+An existing repository must match this project's management marker and private
+identity; the script will not adopt an unrelated private repository.
 
-GitHub CLI authentication authorizes only repository creation, upload, and
-readback by this local workflow. It does not prove that ChatGPT's GitHub App is
-authorized, and a ChatGPT GitHub App grant does not prove that `gh` is logged in.
-The v3 ledger stores these as separate evidence domains. Behavior tests prove
-that the CLI preflight never invokes `gh auth login` by itself; login remains a
-separate, explicitly user-authorized recovery action.
+The backup includes local branches, tags, reachable history, and approved WIP.
+Ignored caches/build output are excluded. Upload staging leaves the local
+branch, index, working tree, and remotes unchanged. It preserves remote history
+without force-pushing or deleting refs, and makes the reviewed version the
+backup's default branch. Credential scanning, destination checks, and exact
+commit checks remain automatic. A sensitive-path exception requires explicit
+per-path authorization with `--allow-sensitive-path`; a passed scan cannot prove
+that every kind of secret was found.
 
-Run:
+## 2. Prepare the message after upload
+
+Select the mode from this review's request, then run:
 
 ```bash
-python3 <skill-dir>/scripts/review_repo.py publish \
-  --repo /absolute/project/path \
-  --mode review \
-  --binding source-chip \
-  --prompt-file /absolute/prompt.txt
+python3 <skill-dir>/scripts/review_repo.py prepare-review \
+  --run-dir /absolute/run --mode <pro-or-review> \
+  --prompt-file /absolute/review-request.txt
 ```
 
-For approved WIP, add `--include-working-tree`. For a deliberate credential-path
-exception, repeat `--allow-sensitive-path relative/path`.
+The default `raw-url` route prefixes the verified GitHub URL to the unchanged
+request, unless that exact URL is already present. `request.txt` preserves the
+original bytes; `prompt.txt` is the complete frozen message to paste. Upload
+receipts remain unchanged. Do not edit either file after preparation.
 
-The publisher reuses the source's existing project mapping. Without one, an
-explicit `--mirror` wins; otherwise it uses a meaningful GitHub origin basename
-or local repository dirname. Generic names such as `Li`, `repo`, or `project`
-fail closed and require `--mirror owner/repository`.
+If the user chose an exact GitHub source chip, add `--binding source-chip`;
+that route preserves the request as the complete message and binds the source
+in the picker. Do not impose the picker route on a link-based review.
 
-It then:
+The original combined `publish --mode ... --prompt-file ...` command remains
+supported for existing callers. Its complete Prompt stays byte-for-byte and its
+existing binding default remains `source-chip`.
 
-- verifies the destination identity, private visibility, and this Skill's project
-  marker, then checks that Git's effective fetch and push URLs resolve to that
-  same GitHub repository before any transfer;
-- uploads every local branch, tag, and reachable history without deleting
-  remote-only history;
-- archives a non-fast-forward local ref under a unique remote archival ref;
-- creates `review/wip/<run-id>` only for explicitly approved dirty content;
-- makes the reviewed branch the GitHub default branch;
-- freezes `prompt.txt` by byte length and SHA-256 and rechecks it at every v3
-  browser or collection transition;
-- serializes run creation and rejects a second active run for the same resolved
-  source path;
-- rejects submodules, Git LFS pointer-only content, oversized GitHub blobs, and
-  unapproved credential paths; and
-- records the exact private mirror, default branch, commit, prompt hash, binding,
-  source manifest, and upload result in a private v3 run directory.
+## 3. Send once in ChatGPT Pro
 
-Do not enter the browser phase unless output status is `published` and
-`mirror_private` is `true`.
+Read and follow the [browser protocol](references/browser-protocol.md) for the
+browser phase, including its command examples and recovery rules. Use a
+supported browser connection to the user's logged-in ChatGPT session. Never
+copy cookies/profiles, use private ChatGPT APIs, or use raw browser automation
+outside that supported connection.
 
-## Bind And Submit In ChatGPT
+Open one fresh saved conversation, select the chosen Pro mode, paste the frozen
+message in one operation, check its value once, and click Send once. Register
+only this run's tabs. Record source/model evidence before the composer is ready,
+and save the resulting conversation URL immediately after sending. Existing
+GitHub App authorization can be reused; change its settings only if access fails
+or the user asks. A pasted URL does not prove that ChatGPT retrieved the code.
 
-Open one fresh saved ChatGPT conversation, never Temporary Chat. Register and
-activate only the tabs created for this run:
+Do not split one review into multiple chats. If the local record was interrupted
+around Send, inspect the owned tab first: record an already-sent conversation,
+never blindly send again. A pre-submission correction can reuse the frozen
+upload through `supersede`, after closing the abandoned drafts.
 
-```bash
-python3 <skill-dir>/scripts/review_repo.py tab \
-  --run-dir /absolute/run --action register --tab-id <browser-tab-id> \
-  --kind chatgpt-draft --url https://chatgpt.com/
-python3 <skill-dir>/scripts/review_repo.py tab \
-  --run-dir /absolute/run --action activate --tab-id <browser-tab-id>
-```
+## 4. Wait, collect, and review again
 
-Before binding, verify the ChatGPT GitHub App grant separately from both GitHub
-CLI authentication and source indexing. If a `source-chip` mirror is authorized
-but not yet selectable, record
-`source-index-pending` once and stop without polling:
+Use the protocol's bounded completion wait without repeated response scraping.
+Only accept completion after the recorded generation sentinel disappears and
+the mode's final answer/report container is present. Create the owned `0700`
+temporary directory and `0600` answer file before extraction, then collect the
+final container with its hash and saved conversation/tab evidence.
 
-```bash
-python3 <skill-dir>/scripts/review_repo.py event \
-  --run-dir /absolute/run --event source-index-pending \
-  --app-grant verified --binding source-chip \
-  --repository owner/repository --default-branch branch --commit SHA \
-  --tab-id <browser-tab-id>
-```
+On interruption, inspect the existing run with `show --run-dir /absolute/run`.
+A `pending` run whose page has now finished can record the same strict
+`wait-complete` evidence and collect, even after its wait budget is exhausted.
+Resume only the saved conversation; do not resend or upload another version.
 
-When the exact source is available, record structured source evidence. The
-visible capability must literally be `Pro`; a reasoning-strength label such as
-`xhigh` or `极高` is not sufficient. Deep Research must be active only for
-`review`. The command re-reads the private GitHub repository's current default
-branch and branch SHA immediately before accepting browser evidence. Any drift
-from the published review commit fails closed:
+If the review is abandoned, confirm in the browser that it finished or was
+cancelled, then use `end` as described in the protocol. A timeout or closed tab
+alone does not prove it stopped. An active upload cannot be ended while its
+publisher or transfer child still holds its execution lock.
 
-```bash
-python3 <skill-dir>/scripts/review_repo.py event \
-  --run-dir /absolute/run --event source-bound \
-  --capability-label Pro --deep-research active --app-grant verified \
-  --binding source-chip --repository owner/repository \
-  --default-branch branch --commit SHA --tab-id <browser-tab-id>
-```
+After `collected` or an explicitly recorded `ended`, the next requested review
+uploads the new version to the same private backup. Keep past runs and the
+repository. `archive` changes only a run's local status; it deletes no evidence.
+Legacy runs remain readable and unverified, never silently upgraded.
 
-Prepare the full prompt outside the composer and fill it in one operation. Read
-the composer once, compare it to the frozen `prompt.txt`, calculate the exact
-SHA-256, and record readiness. Editing or replacing `prompt.txt` after run
-creation makes every v3 transition fail closed:
-
-```bash
-python3 <skill-dir>/scripts/review_repo.py event \
-  --run-dir /absolute/run --event composer-ready \
-  --prompt-sha256 SHA256 --fill-method single-operation \
-  --tab-id <browser-tab-id>
-```
-
-Click the visible send button once. Never press Enter to submit. After the URL
-becomes a durable saved conversation URL, record:
-
-```bash
-python3 <skill-dir>/scripts/review_repo.py event \
-  --run-dir /absolute/run --event submitted \
-  --conversation-url https://chatgpt.com/c/CONVERSATION \
-  --submission-method send-button --tab-id <browser-tab-id>
-```
-
-The v3 state machine rejects model/mode/source/branch/SHA/prompt/tab mismatches,
-remote review-commit drift, sequential typing, Enter submission, duplicate
-submission, unrelated tabs, and unsupported completion claims.
-
-Binding assurance is explicit:
-
-- `github-app-source-chip-exact-commit-v1` means the App grant, visible source
-  chip, exact repository/default branch/commit, and live GitHub readback all
-  matched. It still does not cryptographically attest what ChatGPT read.
-- `raw-url-reference-only-v1` means only that the unchanged prompt contains the
-  exact private repository URL. Even with a separately verified App grant, it
-  must never be described as source-chip binding or proof that repository
-  contents were retrieved.
-
-## Correct A Pre-Submission Run
-
-If mode, binding, or prompt is wrong after publication, close every abandoned
-run-owned draft or temporary GitHub tab in the browser and record each close.
-Then reuse the already verified snapshot without touching Git or GitHub:
-
-```bash
-python3 <skill-dir>/scripts/review_repo.py supersede \
-  --run-dir /absolute/old-run --mode review --binding source-chip \
-  --prompt-file /absolute/corrected-prompt.txt --reason "correct review mode"
-```
-
-An identical replacement is rejected. A submitted conversation cannot be
-superseded this way.
-
-## Wait, Collect, And Resume
-
-Identify the current generation sentinel from targeted semantic button metadata,
-then record `wait-start` with that exact opaque identifier:
-
-```bash
-python3 <skill-dir>/scripts/review_repo.py event \
-  --run-dir /absolute/run --event wait-start \
-  --generation-sentinel <observed-sentinel-id> \
-  --tab-id <browser-tab-id>
-```
-
-Use one event-driven wait. Do not read response text or status while it is
-active. Completion is accepted only after the recorded sentinel is absent and
-the mode-specific final container is present. `review` requires
-`deep-research-report`; `pro` requires `assistant-turn`:
-
-```bash
-python3 <skill-dir>/scripts/review_repo.py event \
-  --run-dir /absolute/run --event wait-complete \
-  --generation-sentinel <same-observed-sentinel-id> \
-  --completion-proof generation-sentinel-absent-and-final-container-present \
-  --final-container deep-research-report --tab-id <browser-tab-id>
-```
-
-Before writing any answer bytes, create a current-user-owned `0700` temporary
-directory under `/private/tmp` or the process temporary directory, and an empty
-`0600` regular file inside it, using the safe creation example in the
-[browser protocol](references/browser-protocol.md#waiting-and-collection).
-Extract only that final container once into the pre-created file, preserving its
-permissions. Do not use symlinks or a shared directory, and do not repair an
-already exposed file with chmod; re-extract into a new private file instead.
-Calculate its SHA-256 before collection and bind it to the recorded conversation,
-tab, and container:
-
-```bash
-python3 <skill-dir>/scripts/review_repo.py collect \
-  --run-dir /absolute/run --answer-file /private/tmp/pgpr-answer-RANDOM/answer.md \
-  --answer-sha256 SHA256 --source-kind deep-research-report \
-  --source-conversation-url https://chatgpt.com/c/CONVERSATION \
-  --source-tab-id <browser-tab-id>
-```
-
-Collection records the asserted browser source path, conversation, tab,
-container kind, byte count, claimed hash, and observed hash. This proves which
-local bytes were archived; it remains operator-observed browser provenance, not
-a cryptographic attestation from ChatGPT.
-
-For a genuine disconnect, record `pending`, then `reconnect`, reopen only the
-saved conversation URL, register and activate the replacement tab, and use the
-one remaining long wait. If the original tab actually closed, record its close
-with `--reason disconnected`. A second reconnect,
-third wait, warning retry, duplicate collection, or conversation search is
-forbidden. A frequency warning is terminal: record `warning`, optionally save
-one diagnostic screenshot, and stop.
-
-## Inspect And Archive
-
-Read state without external access:
-
-```bash
-python3 <skill-dir>/scripts/review_repo.py show --run-dir /absolute/run
-python3 <skill-dir>/scripts/review_repo.py list
-python3 <skill-dir>/scripts/review_repo.py list --all
-```
-
-Archive only an explicitly selected terminal run. A dry-run `prepared` record is
-also archivable so it does not permanently occupy the source's single active
-slot. Archiving changes status; it does not delete or move evidence:
-
-```bash
-python3 <skill-dir>/scripts/review_repo.py archive --run-dir /absolute/run
-```
-
-Legacy v1/v2 runs remain readable and are marked `legacy_unverified`, but they
-cannot acquire v3 completion or collection claims. Record `warning` to block and
-archive an abandoned legacy run; never migrate or reinterpret its browser
-evidence automatically.
-
-Report the private backup URL, reviewed ref and commit, binding, mode,
-conversation URL, final status, and `answer.md` path. Treat GPT output as review
-advice, not verified local truth. Consult [KNOWN-ISSUES.md](KNOWN-ISSUES.md)
-before changing browser or state-machine behavior.
+Report the backup URL, reviewed commit, mode, conversation URL, final status,
+and answer path. Treat the answer as review advice to verify against the code.
+Current limitations are in [KNOWN-ISSUES.md](KNOWN-ISSUES.md).

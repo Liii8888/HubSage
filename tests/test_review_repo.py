@@ -1060,6 +1060,135 @@ class BrowserStateTests(unittest.TestCase):
                 )
             )
 
+    def test_pending_completion_and_collection_keep_strict_evidence(self) -> None:
+        self.bind_source()
+        self.ready_composer()
+        self.submit()
+        self.event("wait-start", tab_id="chat-1", generation_sentinel="generation-1")
+        self.event("pending")
+        # No more browser waits are needed to recognize an already-finished answer.
+        state = MODULE.load_run(self.run_dir)
+        state["wait_count"] = 2
+        state["reconnect_count"] = 1
+        MODULE.save_run(self.run_dir, state)
+        complete = dict(tab_id="chat-1", generation_sentinel="generation-1",
+                        completion_proof=MODULE.COMPLETION_PROOF,
+                        final_container="deep-research-report")
+        for changes in ({"generation_sentinel": "wrong"}, {"tab_id": "unrelated"},
+                        {"final_container": "assistant-turn"}, {"completion_proof": None}):
+            with self.subTest(changes=changes), self.assertRaises(MODULE.ReviewError):
+                self.event("wait-complete", **{**complete, **changes})
+        self.assertEqual(MODULE.load_run(self.run_dir)["status"], "pending")
+        self.event("wait-complete", **complete)
+        answer = private_answer(self.root / "pending-answer.md")
+        with redirect_stdout(io.StringIO()):
+            MODULE.command_collect(SimpleNamespace(
+                run_dir=str(self.run_dir), answer_file=str(answer),
+                answer_sha256=MODULE.sha256_bytes(answer.read_bytes()),
+                source_kind="deep-research-report", source_tab_id="chat-1",
+                source_conversation_url="https://chatgpt.com/c/review-run"))
+        state = MODULE.load_run(self.run_dir)
+        self.assertEqual((state["status"], state["wait_count"], state["reconnect_count"]),
+                         ("collected", 2, 1))
+
+    def test_pending_accepts_only_a_recorded_disconnected_replacement(self) -> None:
+        self.bind_source()
+        self.ready_composer()
+        self.submit()
+        self.event("wait-start", tab_id="chat-1", generation_sentinel="generation-1")
+        self.event("pending")
+        self.tab("register", "replacement", kind="chatgpt-conversation",
+                 url="https://chatgpt.com/c/review-run")
+        self.tab("activate", "replacement")
+        complete = dict(tab_id="replacement", generation_sentinel="generation-1",
+                        completion_proof=MODULE.COMPLETION_PROOF,
+                        final_container="deep-research-report")
+        with self.assertRaisesRegex(MODULE.ReviewError, "same active saved"):
+            self.event("wait-complete", **complete)
+        self.tab("close", "chat-1", reason="disconnected")
+        self.tab("register", "wrong", kind="chatgpt-conversation", url="https://chatgpt.com/c/wrong")
+        self.tab("activate", "wrong")
+        with self.assertRaisesRegex(MODULE.ReviewError, "same active saved"):
+            self.event("wait-complete", **{**complete, "tab_id": "wrong"})
+        self.tab("activate", "replacement")
+        self.event("wait-complete", **complete)
+        proof = MODULE.load_run(self.run_dir)["completion_evidence"]
+        self.assertEqual((proof["tab_id"], proof["wait_tab_id"]), ("replacement", "chat-1"))
+
+    def test_submitted_warning_holds_source_until_observed_end(self) -> None:
+        self.bind_source()
+        self.ready_composer()
+        self.submit()
+        self.event("warning", message="rate limit")
+        state_root = self.run_dir.parent.parent
+        self.assertTrue(MODULE.active_runs_for_source(state_root, self.repo))
+        with self.assertRaisesRegex(MODULE.ReviewError, "end first"):
+            MODULE.command_archive(SimpleNamespace(run_dir=str(self.run_dir)))
+        args = dict(run_dir=str(self.run_dir), observed="cancelled",
+                    conversation_url="https://chatgpt.com/c/review-run", reason="cancelled on page")
+        for changes in ({"conversation_url": "https://chatgpt.com/c/wrong"},
+                        {"observed": "not-submitted"}):
+            with self.assertRaises(MODULE.ReviewError):
+                MODULE.command_end(SimpleNamespace(**{**args, **changes}))
+        with redirect_stdout(io.StringIO()):
+            MODULE.command_end(SimpleNamespace(**args))
+        self.assertFalse(MODULE.active_runs_for_source(state_root, self.repo))
+        self.assertEqual(MODULE.load_run(self.run_dir)["ended_from_status"], "blocked")
+        self.assertTrue((self.run_dir / "prompt.txt").is_file())
+        self.tab("close", "chat-1", reason="ended")
+
+    def test_supersede_serializes_against_a_concurrent_browser_write(self) -> None:
+        self.bind_source()
+        self.ready_composer()
+        self.tab("close", "chat-1", reason="correcting draft")
+        prompt = self.root / "corrected.txt"
+        prompt.write_text("corrected request\n")
+        attempted = self.root / "attempted-write"
+        completed = self.root / "completed-write"
+        child_code = "\n".join((
+            "import importlib.util,pathlib,sys", "spec=importlib.util.spec_from_file_location('pgpr',sys.argv[1])",
+            "m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)",
+            "pathlib.Path(sys.argv[3]).touch()",
+            "args=m.build_parser().parse_args(['event','--run-dir',sys.argv[2],'--event','submitted','--conversation-url','https://chatgpt.com/c/concurrent','--submission-method','send-button','--tab-id','chat-1'])",
+            "try: args.func(args)",
+            "except m.ReviewError: pathlib.Path(sys.argv[4]).write_text('rejected')",
+            "else: pathlib.Path(sys.argv[4]).write_text('accepted')"))
+        children = []
+        original = MODULE.read_prompt
+        def while_correcting(value):
+            data = original(value)
+            child = subprocess.Popen([sys.executable, "-c", child_code, str(SCRIPT), str(self.run_dir), str(attempted), str(completed)],
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            children.append(child)
+            deadline = time.monotonic() + 5
+            while not attempted.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(attempted.exists())
+            # Try the lock in this process too: it must be held for the entire
+            # correction, not just while allocating the new run directory.
+            fd = os.open(self.run_dir.parent.parent / ".state.lock", os.O_RDWR)
+            try:
+                with self.assertRaises(BlockingIOError):
+                    MODULE.fcntl.flock(fd, MODULE.fcntl.LOCK_EX | MODULE.fcntl.LOCK_NB)
+            finally:
+                os.close(fd)
+            self.assertFalse(completed.exists())
+            return data
+        try:
+            with mock.patch.object(MODULE, "read_prompt", side_effect=while_correcting), redirect_stdout(io.StringIO()):
+                MODULE.command_supersede(SimpleNamespace(run_dir=str(self.run_dir), mode="pro", binding="source-chip",
+                                                         prompt_file=str(prompt), reason="mode correction"))
+            children[0].wait(timeout=5)
+            self.assertEqual(completed.read_text(), "rejected")
+            state = MODULE.load_run(self.run_dir)
+            self.assertEqual(state["status"], "superseded")
+            self.assertIsNone(state["conversation_url"])
+        finally:
+            for child in children:
+                if child.poll() is None:
+                    child.kill()
+                child.wait(timeout=5)
+
 class SecurityBoundaryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -1471,6 +1600,292 @@ class SecurityBoundaryTests(unittest.TestCase):
                     MODULE.github_repo_info(invalid)
                 github.assert_not_called()
 
+
+
+
+class UploadFirstTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.repo = self.root / "project"
+        self.remote = self.root / "remote.git"
+        init_repo(self.repo)
+        init_repo(self.remote, bare=True)
+        command("git", "branch", "-M", "main", cwd=self.repo)
+        self.first = commit_file(self.repo, "value.txt", "one\n", "one")
+        self.state_root = self.root / "state"
+        self.mirror = "tester/project-private-backup"
+        self.info = None
+        self.creations = 0
+        self.transfers = 0
+        self.request = self.root / "request.txt"
+        self.request.write_bytes("检查边界，不要改写。\r\n  exact trailing spaces  \n".encode())
+        for name, target in (
+            ("active_github_owner", lambda: "tester"),
+            ("github_repo_info", lambda mirror: self.info),
+            ("github", self.fake_github),
+            ("verified_upload_remote", self.upload_remote),
+        ):
+            patch = mock.patch.object(MODULE, name, side_effect=target)
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def fake_github(self, *args: str, **kwargs: object):
+        if args[:2] == ("repo", "create"):
+            self.creations += 1
+            marker = MODULE.DESCRIPTION_PREFIX + MODULE.project_key(self.repo.resolve())
+            self.info = mirror_metadata(self.mirror, marker)
+            return subprocess.CompletedProcess(args, 0, "", "")
+        if args[:3] == ("api", "--method", "PATCH"):
+            self.info["default_branch"] = args[-1].split("=", 1)[1]
+            return subprocess.CompletedProcess(args, 0, "", "")
+        if args[:1] == ("api",) and "/git/ref/heads/" in args[1]:
+            branch = args[1].split("/git/ref/heads/", 1)[1]
+            sha = command("git", "--git-dir", str(self.remote), "rev-parse", "refs/heads/" + branch, cwd=self.root)
+            return subprocess.CompletedProcess(args, 0, sha + "\n", "")
+        self.fail(f"unexpected mocked GitHub call: {args}")
+
+    def upload_remote(self, *args, **kwargs):
+        self.transfers += 1
+        return str(self.remote)
+
+    def cli(self, *args: str) -> dict:
+        parsed = MODULE.build_parser().parse_args(args)
+        output = io.StringIO()
+        with redirect_stdout(output):
+            parsed.func(parsed)
+        return json.loads(output.getvalue())
+
+    def publish(self, *extra: str) -> dict:
+        return self.cli("publish", "--repo", str(self.repo), "--state-root", str(self.state_root),
+                        "--mirror", self.mirror, *extra)
+
+    def prepare(self, run: dict, mode: str = "pro", *extra: str) -> dict:
+        return self.cli("prepare-review", "--run-dir", run["run_dir"], "--mode", mode,
+                        "--prompt-file", str(self.request), *extra)
+
+    def test_upload_then_freeze_link_preserves_request_and_upload_receipts(self) -> None:
+        uploaded = self.publish()
+        run_dir = Path(uploaded["run_dir"])
+        self.assertEqual(uploaded["status"], "uploaded")
+        self.assertFalse((run_dir / "prompt.txt").exists())
+        self.assertIsNone(MODULE.load_run(run_dir)["mode"])
+        receipts = {p: (run_dir / p).read_bytes() for p in ("source-manifest.json", "publish-result.json")}
+        prepared = self.prepare(uploaded)
+        self.assertEqual((prepared["status"], prepared["mode"], prepared["binding"]),
+                         ("published", "pro", "raw-url"))
+        original = self.request.read_bytes()
+        self.assertEqual((run_dir / "request.txt").read_bytes(), original)
+        self.assertEqual((run_dir / "prompt.txt").read_bytes(),
+                         f"https://github.com/{self.mirror}\n\n".encode() + original)
+        for name, content in receipts.items():
+            self.assertEqual((run_dir / name).read_bytes(), content)
+        MODULE.verify_published_identity(run_dir, MODULE.load_run(run_dir))
+        with self.assertRaisesRegex(MODULE.ReviewError, "requires uploaded"):
+            self.prepare(uploaded)
+        self.assertEqual(self.creations, 1)
+
+    def test_prepare_rejects_live_drift_and_changed_original_bytes(self) -> None:
+        uploaded = self.publish()
+        self.info["private"] = False
+        with self.assertRaises(MODULE.ReviewError):
+            self.prepare(uploaded)
+        self.info["private"] = True
+        self.info["default_branch"] = "other"
+        with self.assertRaisesRegex(MODULE.ReviewError, "branch drift"):
+            self.prepare(uploaded)
+        self.info["default_branch"] = "main"
+        prepared = self.prepare(uploaded)
+        run_dir = Path(uploaded["run_dir"])
+        (run_dir / "request.txt").write_bytes(b"changed request")
+        with self.assertRaisesRegex(MODULE.ReviewError, "request byte drift"):
+            MODULE.verify_prompt_snapshot(run_dir, prepared)
+
+    def test_both_modes_complete_without_a_second_send_or_wait(self) -> None:
+        for mode, research, container in (("pro", "inactive", "assistant-turn"),
+                                           ("review", "active", "deep-research-report")):
+            with self.subTest(mode=mode):
+                state = self.prepare(self.publish(), mode)
+                run_dir = state["run_dir"]
+                base = ("--run-dir", run_dir)
+                self.cli("tab", *base, "--action", "register", "--tab-id", "chat", "--url", "https://chatgpt.com/")
+                self.cli("tab", *base, "--action", "activate", "--tab-id", "chat")
+                self.cli("event", *base, "--event", "source-bound", "--capability-label", "Pro",
+                         "--deep-research", research, "--app-grant", "verified", "--binding", "raw-url",
+                         "--repository", self.mirror, "--default-branch", state["review_branch"],
+                         "--commit", state["review_commit"], "--tab-id", "chat")
+                self.cli("event", *base, "--event", "composer-ready", "--prompt-sha256", state["prompt_sha256"],
+                         "--fill-method", "single-operation", "--tab-id", "chat")
+                conversation = "https://chatgpt.com/c/" + mode
+                self.cli("event", *base, "--event", "submitted", "--conversation-url", conversation,
+                         "--submission-method", "send-button", "--tab-id", "chat")
+                self.cli("event", *base, "--event", "wait-start", "--generation-sentinel", "stop", "--tab-id", "chat")
+                self.cli("event", *base, "--event", "pending")
+                self.cli("event", *base, "--event", "wait-complete", "--generation-sentinel", "stop",
+                         "--completion-proof", MODULE.COMPLETION_PROOF, "--final-container", container, "--tab-id", "chat")
+                answer = private_answer(self.root / f"answer-{mode}.md")
+                result = self.cli("collect", *base, "--answer-file", str(answer),
+                                  "--answer-sha256", MODULE.sha256_bytes(answer.read_bytes()),
+                                  "--source-kind", container, "--source-conversation-url", conversation, "--source-tab-id", "chat")
+                self.assertEqual((result["status"], result["wait_count"], result["reconnect_count"]),
+                                 ("collected", 1, 0))
+                commit_file(self.repo, "value.txt", mode + "\n", "after review " + mode)
+        self.assertEqual(self.creations, 1)
+        self.assertEqual(self.transfers, 2)
+
+    def test_next_review_reuses_mirror_and_new_commit_after_end(self) -> None:
+        uploaded = self.publish()
+        before_map = (self.state_root / "projects.json").read_bytes()
+        self.cli("end", "--run-dir", uploaded["run_dir"], "--observed", "not-submitted", "--reason", "new scope")
+        self.assertEqual((self.state_root / "projects.json").read_bytes(), before_map)
+        second = commit_file(self.repo, "value.txt", "two\n", "two")
+        result = self.publish()
+        self.assertEqual(result["mirror"], uploaded["mirror"])
+        self.assertEqual(result["review_commit"], second)
+        self.assertEqual(self.creations, 1)
+        self.assertNotEqual(result["run_id"], uploaded["run_id"])
+        self.assertEqual(command("git", "--git-dir", str(self.remote), "rev-parse", "main", cwd=self.root), second)
+
+    def test_active_upload_entrypoint_returns_resume_without_touching_remote(self) -> None:
+        uploaded = self.publish()
+        self.request.unlink()  # No new Prompt is necessary for routing back.
+        with mock.patch.object(MODULE, "active_github_owner", side_effect=AssertionError("no auth call")), \
+             mock.patch.object(MODULE, "prepare_staging_repository", side_effect=AssertionError("no staging")):
+            resumed = self.publish()
+        self.assertEqual((resumed["status"], resumed["upload_performed"]), ("resume-required", False))
+        self.assertEqual(resumed["runs"][0]["run_id"], uploaded["run_id"])
+        self.assertEqual(resumed["runs"][0]["next_action"], "prepare-review")
+        self.assertEqual(self.transfers, 1)
+
+    def test_explicit_wip_and_committed_only_have_different_payloads(self) -> None:
+        (self.repo / "value.txt").write_text("working tree\n")
+        (self.repo / "extra.txt").write_text("untracked\n")
+        with self.assertRaisesRegex(MODULE.ReviewError, "choose --include-working-tree or --committed-only"):
+            self.publish()
+        committed = self.publish("--committed-only")
+        self.assertEqual(committed["review_commit"], self.first)
+        self.cli("end", "--run-dir", committed["run_dir"], "--observed", "not-submitted", "--reason", "include WIP now")
+        wip = self.publish("--include-working-tree")
+        self.assertNotEqual(wip["review_commit"], self.first)
+        value = command("git", "--git-dir", str(self.remote), "show", wip["review_commit"] + ":extra.txt", cwd=self.root)
+        self.assertEqual(value, "untracked")
+        self.assertEqual(command("git", "rev-parse", "HEAD", cwd=self.repo), self.first)
+        self.assertEqual((self.repo / "value.txt").read_text(), "working tree\n")
+
+    def test_raw_link_not_duplicated_and_source_chip_remains_available(self) -> None:
+        original = f"Review https://github.com/{self.mirror}\nexact words".encode()
+        self.assertEqual(MODULE.compose_review_prompt(original, self.mirror, "raw-url"), original)
+        uploaded = self.publish()
+        state = self.prepare(uploaded, "review", "--binding", "source-chip")
+        self.assertEqual((Path(uploaded["run_dir"]) / "prompt.txt").read_bytes(), self.request.read_bytes())
+        self.assertEqual(state["binding"], "source-chip")
+
+    def test_legacy_pair_and_dry_run_cannot_silently_prepare(self) -> None:
+        for extra in (("--mode", "pro"), ("--prompt-file", str(self.request))):
+            with self.assertRaisesRegex(MODULE.ReviewError, "both"):
+                self.publish(*extra)
+        result = self.publish("--dry-run")
+        with self.assertRaisesRegex(MODULE.ReviewError, "requires uploaded"):
+            self.prepare(result)
+        self.assertEqual(self.creations, 0)
+
+    def test_interrupted_upload_reserves_mirror_and_requires_end(self) -> None:
+        with mock.patch.object(MODULE, "publish_backup", side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                self.publish()
+        run_dir = next((self.state_root / "runs").iterdir())
+        state = MODULE.load_run(run_dir)
+        self.assertEqual((state["status"], state["mirror"]), ("preparing", self.mirror))
+        self.assertEqual(MODULE.load_project_map(self.state_root)["projects"][str(self.repo.resolve())]["mirror"], self.mirror)
+        self.assertEqual(self.publish()["status"], "resume-required")
+        self.cli("end", "--run-dir", str(run_dir), "--observed", "not-submitted", "--reason", "publisher interrupted")
+        self.publish()
+        self.assertEqual(self.creations, 1)
+
+    def test_end_rejects_live_upload_and_legacy_requires_observed_stopped(self) -> None:
+        run_dir = MODULE.create_run(self.state_root, self.repo, None, None, "lock-test", None)
+        state = MODULE.load_run(run_dir)
+        state["publisher_lock"] = "flock-v1"
+        MODULE.save_run(run_dir, state)
+        args = ("end", "--run-dir", str(run_dir), "--observed", "not-submitted", "--reason", "interrupted")
+        with MODULE.upload_execution(run_dir):
+            with self.assertRaisesRegex(MODULE.ReviewError, "still running"):
+                self.cli(*args)
+        state["publisher_lock"] = None
+        MODULE.save_run(run_dir, state)
+        with self.assertRaisesRegex(MODULE.ReviewError, "--publisher-stopped"):
+            self.cli(*args)
+        self.cli(*args, "--publisher-stopped")
+        self.assertEqual(MODULE.load_run(run_dir)["status"], "ended")
+
+    def test_warning_cannot_release_a_publisher_or_an_upload_only_run(self) -> None:
+        run_dir = MODULE.create_run(self.state_root, self.repo, None, None, "warning-upload", None)
+        with MODULE.upload_execution(run_dir):
+            with self.assertRaisesRegex(MODULE.ReviewError, "browser phase"):
+                self.cli("event", "--run-dir", str(run_dir), "--event", "warning", "--message", "interrupted")
+            result = self.publish()
+            self.assertEqual(result["status"], "resume-required")
+            self.assertEqual(self.transfers, 0)
+            self.assertTrue(MODULE.active_runs_for_source(self.state_root, self.repo))
+        state = MODULE.load_run(run_dir)
+        for status in ("uploaded", "prepared"):
+            state["status"] = status
+            MODULE.save_run(run_dir, state)
+            with self.assertRaisesRegex(MODULE.ReviewError, "browser phase"):
+                self.cli("event", "--run-dir", str(run_dir), "--event", "warning")
+
+    def test_transfer_child_retains_lease_after_publisher_is_killed(self) -> None:
+        run_dir = MODULE.create_run(self.state_root, self.repo, None, None, "killed-publisher", None)
+        state = MODULE.load_run(run_dir)
+        state["publisher_lock"] = "flock-v1"
+        MODULE.save_run(run_dir, state)
+        child_ready = self.root / "child-ready"
+        child_release = self.root / "child-release"
+        child_done = self.root / "child-done"
+        child_code = "\n".join((
+            "import pathlib,sys,time", "ready,release,done=map(pathlib.Path,sys.argv[1:])",
+            "ready.write_text('ready')", "deadline=time.monotonic()+15",
+            "while not release.exists() and time.monotonic()<deadline: time.sleep(0.02)",
+            "done.write_text('done')"))
+        parent_code = "\n".join((
+            "import importlib.util,pathlib,sys", "spec=importlib.util.spec_from_file_location('pgpr',sys.argv[1])",
+            "m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)",
+            "with m.upload_execution(pathlib.Path(sys.argv[2])):",
+            "    m.run([sys.executable,'-c',sys.argv[3],*sys.argv[4:]])"))
+        parent = subprocess.Popen([sys.executable, "-c", parent_code, str(SCRIPT), str(run_dir),
+                                   child_code, str(child_ready), str(child_release), str(child_done)],
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        args = ("end", "--run-dir", str(run_dir), "--observed", "not-submitted", "--reason", "publisher killed")
+        try:
+            deadline = time.monotonic() + 5
+            while not child_ready.exists() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertTrue(child_ready.exists())
+            parent.kill()
+            parent.wait(timeout=3)
+            with self.assertRaisesRegex(MODULE.ReviewError, "still running"):
+                self.cli(*args)
+            child_release.touch()
+            deadline = time.monotonic() + 5
+            while not child_done.exists() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertTrue(child_done.exists())
+            # done is written just before exit; retry the nonblocking lock only.
+            while True:
+                try:
+                    result = self.cli(*args)
+                    break
+                except MODULE.ReviewError:
+                    if time.monotonic() >= deadline:
+                        raise
+                    time.sleep(0.02)
+            self.assertEqual(result["status"], "ended")
+        finally:
+            child_release.touch()
+            if parent.poll() is None:
+                parent.kill()
+            parent.wait(timeout=3)
 
 
 if __name__ == "__main__":
