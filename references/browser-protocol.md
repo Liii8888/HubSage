@@ -232,7 +232,11 @@ python3 <skill-dir>/scripts/review_repo.py end --run-dir /absolute/run \
 Use `finished` instead if that is what was observed. For a run actually never
 sent, use `--observed not-submitted` without a conversation URL. If Send happened
 before recording was interrupted, record the existing submission first; local
-`composer-ready` is not permission to assert that no message was sent.
+`composer-ready` is not permission to assert that no message was sent. If a warning
+prevented recording that submission, register and activate its actual saved
+conversation tab. After observing that it finished or was cancelled, `end` can
+accept that exact tab's URL. This recovers an ended record only; it does not
+manufacture completion or answer evidence.
 
 `end` retains every record and the private repository. It will not release an
 upload while the publisher or its transfer child holds the execution lock.
@@ -242,8 +246,9 @@ old publisher and all Git/gh children have exited; only then add
 A partially uploaded backup stays mapped to the project, so the next upload
 finishes against that same destination instead of leaving abandoned copies.
 
-A submitted `blocked` run still protects its source. `archive` cannot bypass
-that protection; record the observed end first. Timeouts and closed tabs are
+Every `blocked` run still protects its source, including a warning immediately
+after Send but before its saved URL was recorded. `archive` cannot bypass that
+protection; record the observed end first. Timeouts and closed tabs are
 not proof that the web review stopped reading the repository.
 
 ### One disconnected-session recovery

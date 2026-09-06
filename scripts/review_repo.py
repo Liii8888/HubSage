@@ -1029,10 +1029,9 @@ def save_run(run_dir: Path, value: dict[str, Any]) -> None:
 
 
 def run_holds_source(state: dict[str, Any]) -> bool:
-    # A local warning cannot prove that the submitted web review stopped reading.
-    return state.get("status") in ACTIVE_STATUSES or (
-        state.get("status") == "blocked" and bool(state.get("conversation_url"))
-    )
+    # A warning also can land after Send but before its saved URL was recorded.
+    # Only observed end/collection can release that uncertain submission window.
+    return state.get("status") in ACTIVE_STATUSES or state.get("status") == "blocked"
 
 
 def next_action(state: dict[str, Any]) -> str:
@@ -1051,8 +1050,8 @@ def next_action(state: dict[str, Any]) -> str:
         return "resume-saved-conversation; complete-and-collect-or-end-after-it-stops"
     if status == "completed":
         return "collect"
-    if status == "blocked" and state.get("conversation_url"):
-        return "end-after-confirming-saved-review-finished-or-cancelled"
+    if status == "blocked":
+        return "inspect-owned-tab; end-after-confirming-review-stopped-or-was-not-submitted"
     return "start-next-review-if-requested"
 
 
@@ -2003,6 +2002,19 @@ def command_end(args: argparse.Namespace) -> None:
                 and not getattr(args, "publisher_stopped", False)):
             abort("legacy preparing run has no publisher lease; confirm the old publisher and all Git/gh children stopped, then use --publisher-stopped")
         url = state.get("conversation_url")
+        if not url and args.conversation_url:
+            # Recovery for Send acknowledged by the page but not by the ledger.
+            # This records an observed end only, never completion/answer proof.
+            if (state.get("status") not in {"composer-ready", "blocked"}
+                    or args.observed not in {"finished", "cancelled"}
+                    or not CHATGPT_CONVERSATION_RE.fullmatch(args.conversation_url)):
+                abort("unrecorded submission requires an observed stopped saved conversation")
+            tab = require_active_owned_tab(state, state.get("active_tab_id"))
+            if tab.get("kind") != "chatgpt-conversation" or tab.get("url") != args.conversation_url:
+                abort("unrecorded submission requires the active owned saved conversation tab")
+            url = args.conversation_url
+            state["conversation_url"] = url
+            state["submission_recovered_for_end_only"] = True
         if url:
             if args.conversation_url != url or args.observed not in {"finished", "cancelled"}:
                 abort("end requires the saved conversation URL and an observed finished or cancelled review")
@@ -2024,8 +2036,8 @@ def command_archive(args: argparse.Namespace) -> None:
     run_dir = managed_run_dir(args.run_dir)
     state = load_run(run_dir)
     status = state.get("status")
-    if status == "blocked" and state.get("conversation_url"):
-        abort("archive cannot release a submitted review; confirm it has stopped and use end first")
+    if status == "blocked":
+        abort("archive cannot release a blocked review; confirm whether it was sent and use end first")
     if status not in ARCHIVABLE_STATUSES:
         abort(
             "archive is manual and requires prepared, collected, blocked, failed, "

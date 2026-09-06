@@ -52,8 +52,8 @@ Publication dates are recorded by GitHub Releases; this file groups the version'
 - Return an existing run and its next step from the upload-only entrypoint.
   Complete pending reviews through the original strict proof, including a
   disconnected tab's verified replacement, without resetting wait limits.
-- Keep submitted warning states active until their saved review is confirmed
-  ended. Add evidence-preserving `end` and a per-run upload execution lock that
+- Keep warning states active until the review is confirmed ended or never sent,
+  including interruption after Send but before its saved URL is recorded. Add evidence-preserving `end` and a per-run upload execution lock that
   also covers transfer children; interrupted uploads retain their target mapping.
 - Shorten the Skill to the main SOP and keep browser details in the protocol.
 

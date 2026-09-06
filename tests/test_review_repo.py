@@ -999,7 +999,11 @@ class BrowserStateTests(unittest.TestCase):
         self.assertTrue(legacy_item["legacy_unverified"])
 
         self.event("warning", message="manual stop")
+        with self.assertRaisesRegex(MODULE.ReviewError, "end first"):
+            MODULE.command_archive(SimpleNamespace(run_dir=str(self.run_dir)))
         with redirect_stdout(io.StringIO()):
+            MODULE.command_end(SimpleNamespace(run_dir=str(self.run_dir), observed="not-submitted",
+                                              conversation_url=None, reason="draft was never sent"))
             MODULE.command_archive(SimpleNamespace(run_dir=str(self.run_dir)))
         self.assertEqual(MODULE.load_run(self.run_dir)["status"], "archived")
         with self.assertRaisesRegex(MODULE.ReviewError, "requires prepared"):
@@ -1136,6 +1140,30 @@ class BrowserStateTests(unittest.TestCase):
         self.assertEqual(MODULE.load_run(self.run_dir)["ended_from_status"], "blocked")
         self.assertTrue((self.run_dir / "prompt.txt").is_file())
         self.tab("close", "chat-1", reason="ended")
+
+    def test_warning_in_send_acknowledgement_gap_never_releases_the_source(self) -> None:
+        self.bind_source()
+        self.ready_composer()
+        # The page sent, but the local submitted acknowledgement was interrupted.
+        self.event("warning", message="warning after clicking Send")
+        self.assertTrue(MODULE.active_runs_for_source(self.run_dir.parent.parent, self.repo))
+        with self.assertRaisesRegex(MODULE.ReviewError, "end first"):
+            MODULE.command_archive(SimpleNamespace(run_dir=str(self.run_dir)))
+        args = dict(run_dir=str(self.run_dir), observed="finished", reason="observed stopped after interrupted send",
+                    conversation_url="https://chatgpt.com/c/already-sent")
+        with self.assertRaisesRegex(MODULE.ReviewError, "active owned saved"):
+            MODULE.command_end(SimpleNamespace(**args))
+        self.tab("register", "saved-after-send", kind="chatgpt-conversation", url=args["conversation_url"])
+        self.tab("activate", "saved-after-send")
+        with self.assertRaisesRegex(MODULE.ReviewError, "active owned saved"):
+            MODULE.command_end(SimpleNamespace(**{**args, "conversation_url": "https://chatgpt.com/c/other"}))
+        with redirect_stdout(io.StringIO()):
+            MODULE.command_end(SimpleNamespace(**args))
+        state = MODULE.load_run(self.run_dir)
+        self.assertEqual((state["status"], state["conversation_url"]), ("ended", args["conversation_url"]))
+        self.assertTrue(state["submission_recovered_for_end_only"])
+        self.assertNotIn("completion_evidence", state)
+        self.assertFalse(MODULE.active_runs_for_source(self.run_dir.parent.parent, self.repo))
 
     def test_supersede_serializes_against_a_concurrent_browser_write(self) -> None:
         self.bind_source()
