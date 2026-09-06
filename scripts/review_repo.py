@@ -121,6 +121,7 @@ def run(
     cwd: Path | None = None,
     check: bool = True,
     input_text: str | None = None,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         command,
@@ -128,6 +129,7 @@ def run(
         check=False,
         text=True,
         input=input_text,
+        env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -135,6 +137,14 @@ def run(
         detail = result.stderr.strip() or result.stdout.strip()
         abort(f"command failed ({result.returncode}): {' '.join(command)}\n{detail}")
     return result
+
+
+def github(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    # Scope host selection to this child; never alter the user's gh configuration.
+    command = ["gh", *args]
+    if args and args[0] == "api":
+        command[2:2] = ["--hostname", "github.com"]
+    return run(command, check=check, env={**os.environ, "GH_HOST": "github.com"})
 
 
 def run_bytes(
@@ -298,21 +308,36 @@ def read_regular_file_bytes(
             abort(
                 f"{label} must be under a private temporary root: {resolved}"
             )
-    flags = os.O_RDONLY
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
+    if lexical.parent.is_symlink():
+        abort(f"{label} directory must not be a symlink: {lexical.parent}")
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
     try:
-        descriptor = os.open(lexical, flags)
+        directory = os.open(resolved.parent, directory_flags)
     except OSError as exc:
-        abort(f"cannot open {label}: {lexical}: {exc}")
+        abort(f"cannot open {label} directory: {resolved.parent}: {exc}")
     try:
-        metadata = os.fstat(descriptor)
-        if not stat.S_ISREG(metadata.st_mode):
-            abort(f"{label} is not a regular file: {lexical}")
-        with os.fdopen(descriptor, "rb", closefd=False) as handle:
-            data = handle.read()
+        metadata = os.fstat(directory)
+        if metadata.st_uid != os.geteuid() or stat.S_IMODE(metadata.st_mode) != 0o700:
+            abort(f"{label} directory must be owned by the current user with mode 0700")
+        # Open relative to the checked directory, refusing symlinks and avoiding
+        # blocking on a FIFO before we can reject non-regular files.
+        flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+        try:
+            descriptor = os.open(resolved.name, flags, dir_fd=directory)
+        except OSError as exc:
+            abort(f"cannot open {label}: {resolved}: {exc}")
+        try:
+            metadata = os.fstat(descriptor)
+            if not stat.S_ISREG(metadata.st_mode):
+                abort(f"{label} is not a regular file: {resolved}")
+            if metadata.st_uid != os.geteuid() or stat.S_IMODE(metadata.st_mode) != 0o600:
+                abort(f"{label} must be owned by the current user with mode 0600")
+            with os.fdopen(descriptor, "rb", closefd=False) as handle:
+                data = handle.read()
+        finally:
+            os.close(descriptor)
     finally:
-        os.close(descriptor)
+        os.close(directory)
     return resolved, data
 
 
@@ -466,16 +491,32 @@ def object_sizes(repo: Path, objects: Iterable[str]) -> dict[str, tuple[str, int
     return result
 
 
-def reachable_objects(repo: Path, commit: str) -> tuple[dict[str, str], dict[str, tuple[str, int]]]:
-    output = git(repo, "rev-list", "--objects", "--all", commit)
-    names: dict[str, str] = {}
-    object_ids: list[str] = []
-    for line in output.splitlines():
-        object_id, _, path = line.partition(" ")
-        object_ids.append(object_id)
-        if path and object_id not in names:
-            names[object_id] = path
-    return names, object_sizes(repo, object_ids)
+def reachable_objects(
+    repo: Path, commit: str
+) -> tuple[dict[str, set[str]], dict[str, tuple[str, int]]]:
+    # Object IDs are line-safe; paths are not. rev-list's object names also
+    # discard aliases, so obtain every real path from NUL-delimited trees.
+    object_ids = git(repo, "rev-list", "--objects", "--no-object-names", "--all", commit).splitlines()
+    sizes = object_sizes(repo, object_ids)
+    roots = set(git(repo, "rev-list", "--all", commit, "--format=%T", "--no-commit-header").splitlines())
+    # Git also permits tags directly naming trees or blobs. Scan tree tags with
+    # their full paths, and retain unnamed blobs in sizes for content scanning.
+    for object_id in set(git(repo, "for-each-ref", "--format=%(objectname)").splitlines()):
+        if sizes[object_id][0] == "tag":
+            object_id = git(repo, "rev-parse", f"{object_id}^{{}}")
+        if sizes[object_id][0] == "tree":
+            roots.add(object_id)
+    names: dict[str, set[str]] = {}
+    submodules: set[str] = set()
+    for tree in sorted(roots):
+        for entry in tree_entries(repo, tree):
+            if entry["mode"] == "160000":
+                submodules.add(entry["path"])
+            if entry["type"] == "blob":
+                names.setdefault(entry["object"], set()).add(entry["path"])
+    if submodules:
+        abort("submodule content is not backed up by this repository: " + ", ".join(sorted(submodules)))
+    return names, sizes
 
 
 def sensitive_path(path: str) -> bool:
@@ -533,38 +574,19 @@ def validate_backup_payload(
     allowed_sensitive_paths: set[str],
 ) -> dict[str, Any]:
     entries = tree_entries(repo, review_commit)
-    raw_history = git(
-        repo,
-        "log",
-        "--all",
-        review_commit,
-        "--format=",
-        "--raw",
-        "--no-renames",
-    )
-    submodules = sorted(
-        {
-            line.split("\t", 1)[1]
-            for line in raw_history.splitlines()
-            if "\t" in line
-            and re.match(r"^:(?:160000 [0-9]{6}|[0-9]{6} 160000) ", line)
-        }
-    )
-    if submodules:
-        abort("submodule content is not backed up by this repository: " + ", ".join(submodules))
-
     names, sizes = reachable_objects(repo, review_commit)
     oversized = []
     for object_id, (object_type, size) in sizes.items():
         if object_type == "blob" and size >= MAX_GITHUB_BLOB_BYTES:
-            oversized.append(f"{names.get(object_id, object_id)} ({size} bytes)")
+            oversized.append(f"{sorted(names.get(object_id, {object_id}))!r} ({size} bytes)")
     if oversized:
         abort("GitHub oversized blob(s): " + "; ".join(sorted(oversized)))
 
     history_sensitive = sorted(
         {
             path
-            for path in names.values()
+            for paths in names.values()
+            for path in paths
             if sensitive_path(path) and path not in allowed_sensitive_paths
         }
     )
@@ -577,20 +599,19 @@ def validate_backup_payload(
     candidate_blobs = sorted(
         object_id
         for object_id, (object_type, size) in sizes.items()
-        if object_type == "blob" and size <= 2_000_000
+        if object_type == "blob"
     )
     lfs_paths: set[str] = set()
     content_sensitive: set[str] = set()
     for object_id, content in iter_blob_contents(repo, candidate_blobs):
-        path = names.get(object_id, object_id)
+        paths = names.get(object_id, set())
+        display_paths = paths or {f"unnamed Git blob {object_id}"}
         if content.startswith(b"version https://git-lfs.github.com/spec/v1\n"):
-            lfs_paths.add(path)
-        if path in allowed_sensitive_paths:
-            continue
+            lfs_paths.update(display_paths)
         if any(marker in content for marker in PRIVATE_KEY_MARKERS) or any(
             pattern.search(content) for pattern in TOKEN_PATTERNS
         ):
-            content_sensitive.add(path)
+            content_sensitive.update(paths - allowed_sensitive_paths if paths else display_paths)
 
     entry_sizes = object_sizes(repo, (entry["object"] for entry in entries if entry["type"] == "blob"))
     inventory: list[dict[str, Any]] = []
@@ -614,10 +635,10 @@ def validate_backup_payload(
 
 
 def active_github_owner() -> str:
-    result = run(["gh", "auth", "status", "--hostname", "github.com"], check=False)
+    result = github("auth", "status", "--hostname", "github.com", check=False)
     if result.returncode:
         abort("gh is not authenticated to github.com")
-    owner = run(["gh", "api", "user", "--jq", ".login"]).stdout.strip()
+    owner = github("api", "user", "--jq", ".login").stdout.strip()
     if not owner:
         abort("cannot determine the active GitHub account")
     return owner
@@ -700,44 +721,64 @@ def save_project_map(state_root: Path, value: dict[str, Any]) -> None:
     write_json(state_root / "projects.json", value)
 
 
+def mirror_identity(mirror: str) -> tuple[str, str]:
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]{1,100}", mirror):
+        abort(f"invalid GitHub owner/repository: {mirror}")
+    owner, name = mirror.split("/")
+    if name in {".", ".."}:
+        abort(f"invalid GitHub repository name: {mirror}")
+    return owner, name
+
+
 def github_repo_info(mirror: str) -> dict[str, Any] | None:
-    result = run(["gh", "api", f"repos/{mirror}"], check=False)
+    mirror_identity(mirror)
+    result = github("api", f"repos/{mirror}", check=False)
     if result.returncode:
         if "404" in result.stderr or "Not Found" in result.stderr:
             return None
         abort(result.stderr.strip() or f"cannot inspect GitHub repository {mirror}")
     try:
-        return json.loads(result.stdout)
+        info = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
         abort(f"GitHub repository metadata is invalid: {exc}")
+    if not isinstance(info, dict):
+        abort("GitHub repository metadata must be an object")
+    return info
+
+
+def validate_mirror_info(mirror: str, marker: str, info: dict[str, Any] | None) -> dict[str, Any]:
+    owner, name = mirror_identity(mirror)
+    if info is None:
+        abort(f"GitHub repository is unavailable: {mirror}")
+    actual_owner = info.get("owner")
+    if not isinstance(actual_owner, dict) or any(
+        not isinstance(actual, str) or actual.casefold() != expected.casefold()
+        for actual, expected in (
+            (actual_owner.get("login"), owner),
+            (info.get("name"), name),
+            (info.get("full_name"), mirror),
+            (info.get("html_url"), f"https://github.com/{mirror}"),
+        )
+    ):
+        abort(f"GitHub repository identity mismatch: {mirror}")
+    if info.get("private") is not True:
+        abort(f"refusing non-private GitHub repository: {mirror}")
+    if info.get("description") != marker:
+        abort(f"GitHub repository management marker drift: {mirror}")
+    return info
 
 
 def ensure_private_mirror(mirror: str, marker: str) -> tuple[dict[str, Any], bool]:
     info = github_repo_info(mirror)
     created = False
     if info is None:
-        run(
-            [
-                "gh",
-                "repo",
-                "create",
-                mirror,
-                "--private",
-                "--disable-issues",
-                "--disable-wiki",
-                "--description",
-                marker,
-            ]
+        github(
+            "repo", "create", mirror, "--private", "--disable-issues",
+            "--disable-wiki", "--description", marker,
         )
         info = github_repo_info(mirror)
         created = True
-    if info is None:
-        abort(f"GitHub repository was not created: {mirror}")
-    if not info.get("private"):
-        abort(f"refusing non-private GitHub repository: {mirror}")
-    if info.get("description") != marker:
-        abort(f"refusing repository without this project's management marker: {mirror}")
-    return info, created
+    return validate_mirror_info(mirror, marker, info), created
 
 
 def remote_refs(repo: Path, remote_url: str) -> dict[str, str]:
@@ -821,7 +862,10 @@ def publish_backup(
     mirror: str,
     staging: dict[str, Any],
     run_id: str,
+    *,
+    marker: str,
 ) -> dict[str, Any]:
+    validate_mirror_info(mirror, marker, github_repo_info(mirror))
     remote_url = f"https://github.com/{mirror}.git"
     remote = remote_refs(stage, remote_url)
     if remote:
@@ -873,24 +917,12 @@ def publish_backup(
         review_destination = branch_destinations[staging["source_branch"]]
 
     review_branch = review_destination.removeprefix("refs/heads/")
-    run(
-        [
-            "gh",
-            "api",
-            "--method",
-            "PATCH",
-            f"repos/{mirror}",
-            "-f",
-            f"default_branch={review_branch}",
-        ]
-    )
-    info = github_repo_info(mirror)
-    if info is None or not info.get("private"):
-        abort("GitHub repository privacy verification failed")
+    github("api", "--method", "PATCH", f"repos/{mirror}", "-f", f"default_branch={review_branch}")
+    info = validate_mirror_info(mirror, marker, github_repo_info(mirror))
     if info.get("default_branch") != review_branch:
         abort("GitHub default branch verification failed")
-    remote_commit = run(
-        ["gh", "api", f"repos/{mirror}/git/ref/heads/{review_branch}", "--jq", ".object.sha"]
+    remote_commit = github(
+        "api", f"repos/{mirror}/git/ref/heads/{review_branch}", "--jq", ".object.sha"
     ).stdout.strip()
     if remote_commit != staging["review_commit"]:
         abort(
@@ -1072,27 +1104,17 @@ def verify_remote_review_commit(run_dir: Path, state: dict[str, Any]) -> dict[st
         abort(
             f"active GitHub CLI account drift: expected {expected_owner}, got {owner}"
         )
-    info = github_repo_info(mirror)
-    if info is None or info.get("private") is not True:
-        abort(f"review repository is no longer verified private: {mirror}")
     expected_marker = DESCRIPTION_PREFIX + project_key(
         Path(str(state.get("source_repo"))).expanduser().resolve()
     )
-    if info.get("description") != expected_marker:
-        abort("remote review repository management marker drift")
+    info = validate_mirror_info(mirror, expected_marker, github_repo_info(mirror))
     if info.get("default_branch") != identity["default_branch"]:
         abort(
             "remote review default branch drift: expected "
             f"{identity['default_branch']}, got {info.get('default_branch')}"
         )
-    remote_commit = run(
-        [
-            "gh",
-            "api",
-            f"repos/{mirror}/git/ref/heads/{identity['default_branch']}",
-            "--jq",
-            ".object.sha",
-        ]
+    remote_commit = github(
+        "api", f"repos/{mirror}/git/ref/heads/{identity['default_branch']}", "--jq", ".object.sha"
     ).stdout.strip()
     if remote_commit != identity["review_commit"]:
         abort(
@@ -1286,7 +1308,8 @@ def command_publish(args: argparse.Namespace) -> None:
             path_key = str(source)
             existing_mapping = projects.get("projects", {}).get(path_key)
             mirror = resolve_mirror(owner, source, args.mirror, existing_mapping)
-            if "/" not in mirror or mirror.split("/", 1)[0].casefold() != owner.casefold():
+            mirror_owner, _ = mirror_identity(mirror)
+            if mirror_owner.casefold() != owner.casefold():
                 abort(f"mirror must belong to the active GitHub account {owner}: {mirror}")
             raw_repository_url = None
             if binding == "raw-url":
@@ -1313,7 +1336,7 @@ def command_publish(args: argparse.Namespace) -> None:
                 }
             else:
                 _, created = ensure_private_mirror(mirror, marker)
-                published = publish_backup(staging["stage"], mirror, staging, run_id)
+                published = publish_backup(staging["stage"], mirror, staging, run_id, marker=marker)
                 result = {
                     "status": "published",
                     "run_id": run_id,

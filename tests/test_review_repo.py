@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
+import stat
 import os
 import subprocess
 import sys
@@ -49,6 +51,25 @@ def commit_file(repo: Path, name: str, content: str, message: str) -> str:
     command("git", "add", "--", name, cwd=repo)
     command("git", "commit", "--quiet", "-m", message, cwd=repo)
     return command("git", "rev-parse", "HEAD", cwd=repo)
+
+
+def private_answer(path: Path, content: str = "final answer\n") -> Path:
+    # The temporary parent already exists with mode 0700. Create the file with
+    # its final permissions before any answer bytes are written.
+    assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle.write(content)
+    return path
+
+
+def mirror_metadata(mirror: str, marker: str, **changes: object) -> dict[str, object]:
+    owner, name = mirror.split("/")
+    return {
+        "owner": {"login": owner}, "name": name, "full_name": mirror,
+        "html_url": f"https://github.com/{mirror}", "private": True,
+        "description": marker, "default_branch": "main", **changes,
+    }
 
 
 class PersistentBackupTests(unittest.TestCase):
@@ -356,7 +377,7 @@ class PersistentBackupTests(unittest.TestCase):
             calls.append(command_args)
             if command_args[:3] == ["gh", "auth", "status"]:
                 return subprocess.CompletedProcess(command_args, 0, "", "")
-            if command_args[:3] == ["gh", "api", "user"]:
+            if command_args[:5] == ["gh", "api", "--hostname", "github.com", "user"]:
                 return subprocess.CompletedProcess(command_args, 0, "tester\n", "")
             raise AssertionError(command_args)
 
@@ -597,7 +618,7 @@ class BrowserStateTests(unittest.TestCase):
             final_container="deep-research-report",
         )
         answer = self.root / "answer.md"
-        answer.write_text("final answer\n", encoding="utf-8")
+        private_answer(answer)
         answer_sha = MODULE.sha256_bytes(answer.read_bytes())
         with redirect_stdout(io.StringIO()):
             MODULE.command_collect(
@@ -684,12 +705,10 @@ class BrowserStateTests(unittest.TestCase):
             with mock.patch.object(
                 MODULE,
                 "github_repo_info",
-                return_value={
-                    "private": True,
-                    "default_branch": "main",
-                    "description": MODULE.DESCRIPTION_PREFIX
-                    + MODULE.project_key(self.repo.resolve()),
-                },
+                return_value=mirror_metadata(
+                    "tester/private-project",
+                    MODULE.DESCRIPTION_PREFIX + MODULE.project_key(self.repo.resolve()),
+                ),
             ):
                 matching = subprocess.CompletedProcess(
                     ["gh", "api"], 0, "a" * 40 + "\n", ""
@@ -712,11 +731,7 @@ class BrowserStateTests(unittest.TestCase):
             with mock.patch.object(
                 MODULE,
                 "github_repo_info",
-                return_value={
-                    "private": True,
-                    "default_branch": "main",
-                    "description": "different manager",
-                },
+                return_value=mirror_metadata("tester/private-project", "different manager"),
             ):
                 with self.assertRaisesRegex(MODULE.ReviewError, "management marker drift"):
                     MODULE.verify_remote_review_commit(
@@ -770,7 +785,7 @@ class BrowserStateTests(unittest.TestCase):
             final_container="deep-research-report",
         )
         answer = self.root / "browser-extract.md"
-        answer.write_text("final answer\n", encoding="utf-8")
+        private_answer(answer)
         good = {
             "run_dir": str(self.run_dir),
             "answer_file": str(answer),
@@ -1045,7 +1060,311 @@ class BrowserStateTests(unittest.TestCase):
                 )
             )
 
+class SecurityBoundaryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+
+    def repository(self, name: str = 'repo') -> Path:
+        repo = self.root / name
+        init_repo(repo)
+        command('git', 'branch', '-M', 'main', cwd=repo)
+        return repo
+
+    def validate(self, repo: Path, allowed: set[str] | None = None) -> dict:
+        return MODULE.validate_backup_payload(repo, command('git', 'rev-parse', 'HEAD', cwd=repo), allowed or set())
+
+    def test_shared_blob_keeps_every_sensitive_filename(self) -> None:
+        repo = self.repository()
+        commit_file(repo, 'a.txt', '{"password":"synthetic fixture"}', 'ordinary alias')
+        commit_file(repo, 'credentials.json', '{"password":"synthetic fixture"}', 'sensitive alias')
+        with self.assertRaisesRegex(MODULE.ReviewError, 'credentials.json'):
+            self.validate(repo)
+        self.assertEqual(self.validate(repo, {'credentials.json'})['file_count'], 2)
+
+    def test_all_historical_renames_branches_and_tags_are_checked(self) -> None:
+        repo = self.repository()
+        first = commit_file(repo, 'a.txt', 'synthetic fixture', 'base')
+        for ref_kind in ('history', 'branch', 'tag'):
+            command('git', 'checkout', '-q', '-B', 'fixture', first, cwd=repo)
+            name = f'{ref_kind}.key'
+            command('git', 'mv', 'a.txt', name, cwd=repo)
+            command('git', 'commit', '-qm', 'sensitive historical name', cwd=repo)
+            if ref_kind == 'history':
+                command('git', 'mv', name, 'a.txt', cwd=repo)
+                command('git', 'commit', '-qm', 'renamed back', cwd=repo)
+                command('git', 'branch', '-f', 'main', 'HEAD', cwd=repo)
+            elif ref_kind == 'branch':
+                command('git', 'branch', 'other', cwd=repo)
+            else:
+                command('git', 'tag', '-a', 'only-tag', '-m', 'tag-only commit', cwd=repo)
+        command('git', 'checkout', '-q', 'main', cwd=repo)
+        command('git', 'branch', '-D', 'fixture', cwd=repo)
+        paths = {'history.key', 'branch.key', 'tag.key'}
+        for omitted in paths:
+            with self.subTest(omitted=omitted), self.assertRaisesRegex(MODULE.ReviewError, omitted):
+                self.validate(repo, paths - {omitted})
+        self.validate(repo, paths)
+
+    def test_unicode_space_newline_paths_and_exact_path_overrides(self) -> None:
+        repo = self.repository()
+        paths = {'中文 目录/credentials.json', '换行\n目录/credentials.json', '普通 名字.txt'}
+        for name in paths:
+            (repo / name).parent.mkdir(parents=True, exist_ok=True)
+            commit_file(repo, name, 'identical synthetic fixture', 'path fixture')
+        sensitive = paths - {'普通 名字.txt'}
+        for omitted in sensitive:
+            with self.subTest(omitted=repr(omitted)), self.assertRaises(MODULE.ReviewError) as caught:
+                self.validate(repo, sensitive - {omitted})
+            self.assertIn(omitted, str(caught.exception))
+        result = self.validate(repo, sensitive)
+        self.assertEqual({entry['path'] for entry in result['files']}, paths)
+
+    def test_content_override_does_not_authorize_another_alias(self) -> None:
+        repo = self.repository()
+        for name in ('a.txt', 'b.txt'):
+            commit_file(repo, name, '-----BEGIN PRIVATE KEY-----\nsynthetic invalid key', 'alias')
+        with self.assertRaisesRegex(MODULE.ReviewError, 'b.txt'):
+            self.validate(repo, {'a.txt'})
+        self.validate(repo, {'a.txt', 'b.txt'})
+
+    def test_tree_tags_and_unnamed_blob_tags_cannot_bypass_scanning(self) -> None:
+        repo = self.repository()
+        base = commit_file(repo, 'a.txt', 'safe fixture', 'base')
+        commit_file(repo, 'credentials.json', 'synthetic fixture', 'tree-only credential path')
+        tree = command('git', 'rev-parse', 'HEAD^{tree}', cwd=repo)
+        command('git', 'tag', '-a', 'tree-tag', tree, '-m', 'tree', cwd=repo)
+        command('git', 'reset', '--hard', base, cwd=repo)
+        with self.assertRaisesRegex(MODULE.ReviewError, 'credentials.json'):
+            self.validate(repo)
+        self.validate(repo, {'credentials.json'})
+        blob = MODULE.git(repo, 'hash-object', '-w', '--stdin', input_text='-----BEGIN PRIVATE KEY-----\nsynthetic')
+        command('git', 'tag', 'blob-tag', blob, cwd=repo)
+        with self.assertRaisesRegex(MODULE.ReviewError, 'unnamed Git blob'):
+            self.validate(repo, {'credentials.json'})
+
+    def test_historical_submodule_paths_still_stop_publication(self) -> None:
+        repo = self.repository()
+        head = commit_file(repo, "a.txt", "safe fixture", "base")
+        path = "历史\n子模块"
+        command("git", "update-index", "--add", "--cacheinfo", f"160000,{head},{path}", cwd=repo)
+        command("git", "commit", "-qm", "historical submodule", cwd=repo)
+        command("git", "update-index", "--force-remove", "--", path, cwd=repo)
+        command("git", "commit", "-qm", "removed submodule", cwd=repo)
+        with self.assertRaisesRegex(MODULE.ReviewError, "submodule content") as caught:
+            self.validate(repo)
+        self.assertIn(path, str(caught.exception))
+
+    def test_truncated_blob_read_is_rejected(self) -> None:
+        process = mock.Mock(
+            stdin=io.BytesIO(), stdout=io.BytesIO(b"abcd blob 100\nshort\n"),
+            stderr=io.BytesIO(),
+        )
+        process.poll.return_value = 0
+        with mock.patch.object(MODULE.subprocess, "Popen", return_value=process):
+            with self.assertRaisesRegex(MODULE.ReviewError, "truncated git cat-file"):
+                list(MODULE.iter_blob_contents(self.root, ["abcd"]))
+
+    def test_large_blobs_are_scanned_on_both_sides_of_old_limit(self) -> None:
+        repo = self.repository()
+        markers = ('-----BEGIN PRIVATE KEY-----', 'ghp_' + 'T' * 36)
+        base = commit_file(repo, 'a.txt', 'safe fixture', 'base')
+        for size in (1_999_999, 2_000_000, 2_000_001, 3_000_000):
+            for marker in markers:
+                with self.subTest(size=size, marker=marker[:5]):
+                    command('git', 'reset', '--hard', base, cwd=repo)
+                    prefix = 'x' * (size - len(marker) - 2) + '\n'
+                    commit_file(repo, 'payload.txt', prefix + marker + '\n', 'synthetic large credential')
+                    self.assertEqual((repo / 'payload.txt').stat().st_size, size)
+                    with self.assertRaisesRegex(MODULE.ReviewError, 'credential-like content'):
+                        self.validate(repo)
+        command('git', 'reset', '--hard', base, cwd=repo)
+        commit_file(repo, 'payload.txt', 'x' * 3_000_000, 'normal large file')
+        self.assertEqual(self.validate(repo)['file_count'], 2)
+
+    def test_large_secret_in_history_is_still_scanned(self) -> None:
+        repo = self.repository()
+        commit_file(repo, 'payload.txt', 'x' * 2_100_000 + '\n-----BEGIN PRIVATE KEY-----\nfixture', 'historical secret')
+        commit_file(repo, 'payload.txt', 'current safe fixture', 'removed marker')
+        with self.assertRaisesRegex(MODULE.ReviewError, 'credential-like content'):
+            self.validate(repo)
+
+    def test_scan_read_failure_prevents_any_github_call(self) -> None:
+        repo = self.repository()
+        commit_file(repo, 'a.txt', 'safe fixture', 'base')
+        prompt = self.root / 'prompt.txt'
+        prompt.write_text('synthetic prompt')
+        args = SimpleNamespace(repo=str(repo), prompt_file=str(prompt), state_root=str(self.root/'state'),
+                               mode='review', binding='source-chip', include_working_tree=False,
+                               mirror='tester/private-project', allow_sensitive_path=[], dry_run=False)
+        with mock.patch.object(MODULE, 'iter_blob_contents', side_effect=MODULE.ReviewError('synthetic read failure')):
+            with mock.patch.object(MODULE, 'github') as github:
+                with self.assertRaisesRegex(MODULE.ReviewError, 'read failure'):
+                    MODULE.command_publish(args)
+                github.assert_not_called()
+        state = MODULE.load_run(next((self.root/'state/runs').iterdir()))
+        self.assertEqual(state['status'], 'failed')
+
+    def read_answer(self, path: Path) -> tuple[Path, bytes]:
+        return MODULE.read_regular_file_bytes(str(path), label='answer file', allowed_roots=(self.root,))
+
+    def test_private_answer_is_read_without_changing_source_permissions(self) -> None:
+        answer = private_answer(self.root / 'answer.md')
+        self.assertEqual(self.read_answer(answer)[1], b'final answer\n')
+        self.assertEqual(stat.S_IMODE(answer.stat().st_mode), 0o600)
+
+    def test_answer_broad_permissions_are_rejected_without_chmod(self) -> None:
+        answer = private_answer(self.root / 'answer.md')
+        for mode in (0o644, 0o640, 0o666):
+            answer.chmod(mode)
+            with self.subTest(mode=oct(mode)), self.assertRaisesRegex(MODULE.ReviewError, '0600'):
+                self.read_answer(answer)
+            self.assertEqual(stat.S_IMODE(answer.stat().st_mode), mode)
+
+    def test_shared_answer_directory_is_rejected(self) -> None:
+        parent = self.root / 'shared'
+        parent.mkdir(mode=0o700)
+        answer = private_answer(parent / 'answer.md')
+        for mode in (0o755, 0o770, 0o1777):
+            parent.chmod(mode)
+            with self.subTest(mode=oct(mode)), self.assertRaisesRegex(MODULE.ReviewError, '0700'):
+                self.read_answer(answer)
+            self.assertEqual(stat.S_IMODE(parent.stat().st_mode), mode)
+
+    def test_wrong_file_or_directory_owner_is_rejected(self) -> None:
+        answer = private_answer(self.root / 'answer.md')
+        original = os.fstat
+        for kind in ('file', 'directory'):
+            def foreign_owner(fd: int) -> os.stat_result:
+                info = original(fd)
+                if stat.S_ISDIR(info.st_mode) == (kind == 'directory'):
+                    values = list(info)
+                    values[4] = os.geteuid() + 1
+                    return os.stat_result(values)
+                return info
+            with self.subTest(kind=kind), mock.patch.object(MODULE.os, 'fstat', side_effect=foreign_owner):
+                with self.assertRaisesRegex(MODULE.ReviewError, 'owned by the current user'):
+                    self.read_answer(answer)
+
+    def test_answer_symlinks_directories_and_fifos_are_rejected(self) -> None:
+        answer = private_answer(self.root / 'answer.md')
+        link = self.root / 'link.md'
+        link.symlink_to(answer)
+        with self.assertRaisesRegex(MODULE.ReviewError, 'symlink'):
+            self.read_answer(link)
+        directory = self.root / 'directory'
+        directory.mkdir(mode=0o700)
+        with self.assertRaisesRegex(MODULE.ReviewError, 'regular file'):
+            self.read_answer(directory)
+        fifo = self.root / 'fifo'
+        os.mkfifo(fifo, mode=0o600)
+        with self.assertRaisesRegex(MODULE.ReviewError, 'regular file'):
+            self.read_answer(fifo)
+        parent_link = self.root / 'linked-directory'
+        parent_link.symlink_to(self.root, target_is_directory=True)
+        with self.assertRaisesRegex(MODULE.ReviewError, 'symlink'):
+            self.read_answer(parent_link / answer.name)
+
+    def simulate_publish(self, changes: dict | None = None, *, create: bool = False,
+                         expected_error: str | None = None) -> list:
+        repo = self.repository()
+        head = commit_file(repo, 'a.txt', 'safe fixture', 'base')
+        prompt = self.root / 'prompt.txt'
+        prompt.write_text('synthetic review prompt')
+        marker = MODULE.DESCRIPTION_PREFIX + MODULE.project_key(repo.resolve())
+        mirror = 'tester/private-project'
+        metadata = mirror_metadata(mirror, marker, **(changes or {}))
+        calls = []
+        exists = not create
+        original = subprocess.run
+        def service(command_args: list, **kwargs: object) -> subprocess.CompletedProcess:
+            nonlocal exists
+            if command_args[0] == 'gh':
+                calls.append(command_args)
+                self.assertEqual(kwargs['env']['GH_HOST'], 'github.com')
+                if command_args[1] == 'api':
+                    self.assertEqual(command_args[2:4], ['--hostname', 'github.com'])
+                    args = command_args[4:]
+                    if args == ['user', '--jq', '.login']:
+                        return subprocess.CompletedProcess(command_args, 0, 'tester\n', '')
+                    if args[0] == '--method':
+                        self.assertEqual(args[:3], ['--method', 'PATCH', f'repos/{mirror}'])
+                        return subprocess.CompletedProcess(command_args, 0, '{}', '')
+                    if args[0] == f'repos/{mirror}/git/ref/heads/main':
+                        return subprocess.CompletedProcess(command_args, 0, head+'\n', '')
+                    self.assertEqual(args, [f'repos/{mirror}'])
+                    return subprocess.CompletedProcess(command_args, 0 if exists else 1,
+                                                       json.dumps(metadata) if exists else '', '' if exists else '404 Not Found')
+                if command_args[1:3] == ['repo', 'create']:
+                    self.assertEqual(command_args[3], mirror)
+                    self.assertIn('--private', command_args)
+                    exists = True
+                    return subprocess.CompletedProcess(command_args, 0, '', '')
+                self.assertEqual(command_args[1:], ['auth', 'status', '--hostname', 'github.com'])
+                return subprocess.CompletedProcess(command_args, 0, '', '')
+            if command_args[0] == 'git' and command_args[1] in {'ls-remote', 'push'}:
+                calls.append(command_args)
+                self.assertIn(f'https://github.com/{mirror}.git', command_args)
+                return subprocess.CompletedProcess(command_args, 0, '', '')
+            if command_args[0] == 'git' and any(str(a).startswith(('https://', 'git@')) for a in command_args[1:]):
+                raise AssertionError(f'unexpected network command: {command_args}')
+            return original(command_args, **kwargs)
+        args = SimpleNamespace(repo=str(repo), prompt_file=str(prompt), state_root=str(self.root/'state'),
+                               mode='review', binding='source-chip', include_working_tree=False,
+                               mirror=mirror, allow_sensitive_path=[], dry_run=False)
+        with mock.patch.dict(os.environ, {'GH_HOST': 'enterprise.example.invalid'}):
+            with mock.patch.object(MODULE.subprocess, 'run', side_effect=service), redirect_stdout(io.StringIO()):
+                if expected_error:
+                    with self.assertRaisesRegex(MODULE.ReviewError, expected_error):
+                        MODULE.command_publish(args)
+                else:
+                    MODULE.command_publish(args)
+                    run_dir = next((self.root/'state/runs').iterdir())
+                    evidence = MODULE.verify_remote_review_commit(run_dir, MODULE.load_run(run_dir))
+                    self.assertEqual(evidence['review_commit'], head)
+            self.assertEqual(os.environ['GH_HOST'], 'enterprise.example.invalid')
+        pushes = [c for c in calls if c[:2] == ['git', 'push']]
+        if expected_error:
+            self.assertFalse(pushes)
+        else:
+            self.assertTrue(pushes)
+            self.assertLess(next(i for i,c in enumerate(calls) if c[0]=='gh' and f'repos/{mirror}' in c),
+                            next(i for i,c in enumerate(calls) if c[:2]==['git','push']))
+        return calls
+
+    def test_abnormal_gh_host_still_publishes_and_reads_back_only_github_com(self) -> None:
+        self.simulate_publish()
+
+    def test_repository_creation_pins_host_without_changing_user_environment(self) -> None:
+        calls = self.simulate_publish(create=True)
+        self.assertEqual(sum(c[1:3] == ['repo', 'create'] for c in calls), 1)
+
+    def test_same_name_public_repository_is_rejected_before_push(self) -> None:
+        self.simulate_publish({'private': False}, expected_error='non-private')
+
+    def test_wrong_repository_owner_is_rejected_before_push(self) -> None:
+        self.simulate_publish({'owner': {'login': 'other'}}, expected_error='identity mismatch')
+
+    def test_wrong_repository_name_is_rejected_before_push(self) -> None:
+        self.simulate_publish({'name': 'other'}, expected_error='identity mismatch')
+
+    def test_wrong_management_marker_is_rejected_before_push(self) -> None:
+        self.simulate_publish({'description': 'another project'}, expected_error='management marker')
+
+    def test_canonical_repository_fields_and_identifier_are_fail_closed(self) -> None:
+        mirror = 'tester/private-project'
+        for change in ({'full_name': 'tester/other'}, {'html_url': 'https://enterprise.example.invalid/tester/private-project'},
+                       {'owner': None}, {'private': 'true'}):
+            with self.subTest(change=change), self.assertRaises(MODULE.ReviewError):
+                MODULE.validate_mirror_info(mirror, 'fixture', mirror_metadata(mirror, 'fixture', **change))
+        for invalid in ('tester/../other', 'tester/repo?redirect=elsewhere', 'tester/..', 'tester/repo\n'):
+            with self.subTest(invalid=invalid), mock.patch.object(MODULE, 'github') as github:
+                with self.assertRaises(MODULE.ReviewError):
+                    MODULE.github_repo_info(invalid)
+                github.assert_not_called()
+
+
 
 if __name__ == "__main__":
-    os.umask(0o077)
     unittest.main()

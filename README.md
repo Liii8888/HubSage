@@ -11,14 +11,16 @@ This Codex Skill maintains a persistent private GitHub backup and records the so
 从你已审查的完整提交 SHA 导出到一个尚不存在的目录：
 
 ```bash
-git clone https://github.com/Liii8888/HubSage.git private-github-pro-review
+PGPR_REVIEWED_SHA=FULL_REVIEWED_COMMIT_SHA
+git clone --no-checkout https://github.com/Liii8888/HubSage.git private-github-pro-review
 cd private-github-pro-review
+git checkout --detach "$PGPR_REVIEWED_SHA"
 python3 scripts/export_skill.py export \
-  --ref FULL_REVIEWED_COMMIT_SHA \
+  --ref "$PGPR_REVIEWED_SHA" \
   --output "$HOME/.agents/skills/private-github-pro-review"
 ```
 
-导出工具不会覆盖已有目录或替换现有 Skill Vault 入口。通过 Vault 使用时，由维护者在审核后更新固定分发快照。
+先切换到已审核的完整 SHA，再运行该提交中的导出脚本；执行代码与安装内容使用同一个审核版本。导出工具不会覆盖已有目录或替换现有 Skill Vault 入口。通过 Vault 使用时，由维护者在审核后更新固定分发快照。
 
 ```text
 使用 $private-github-pro-review，把当前仓库备份到长期私有 GitHub 仓库，并交给 GPT Pro + Deep Research 审查。
@@ -40,7 +42,7 @@ CLI 入口保持为 `scripts/review_repo.py`。`publish --mode review` 使用 Pr
 - 保存分支、tag 和可达历史；未提交快照需明确授权，源仓库保持原状。
 - 固定 Prompt 字节、仓库与提交，验证发布后来源漂移，并限制每个本地仓库同时一个活动审查。
 - 分别记录 GitHub CLI 登录、GitHub App 授权、页面来源绑定和最终回答证据。
-- 上传和使用 ChatGPT 需要授权；不自动登录、强推、重写历史或上传凭据。
+- 上传和使用 ChatGPT 需要授权；不自动登录、强推或重写历史。凭据扫描会拦截已识别的路径和内容，逐路径覆盖需明确授权；有限识别规则无法发现所有种类的秘密。
 - 浏览器观察证明本地记录的页面状态，不证明 ChatGPT 内部实际检索了哪些内容。当前限制见 [KNOWN-ISSUES.md](KNOWN-ISSUES.md)。
 
 公开版默认使用 `$XDG_STATE_HOME/private-github-pro-review`，未设置时使用 `~/.local/state/private-github-pro-review`。`PRIVATE_GITHUB_PRO_REVIEW_HOME` 可显式覆盖；已有 `--state-root` 参数优先。使用本机适配的 Vault 快照时，其固定本机默认值优先于 XDG 默认值，显式环境变量和 CLI 参数仍可覆盖。

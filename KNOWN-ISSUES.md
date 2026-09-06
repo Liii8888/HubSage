@@ -1,5 +1,9 @@
 # Known limitations
 
+- Credential scanning recognizes only the documented path patterns and selected
+  private-key/token markers. It scans all upload-sized blobs but cannot identify
+  every kind of secret; a passed scan is not proof that a repository is secret-free.
+
 - ChatGPT UI labels and controls can change. Visible semantic readback remains
   mandatory; the Skill intentionally has no private API fallback.
 - GitHub App indexing latency is controlled by ChatGPT/GitHub. The Skill records

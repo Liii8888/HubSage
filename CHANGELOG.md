@@ -13,6 +13,20 @@ Publication dates are recorded by GitHub Releases; this file groups the version'
 - Retain public portable state paths and sanitized field notes. Permit one declared, verifiable local default-state adaptation without moving existing review records.
 - Keep the review CLI and run schema 3 unchanged. Consolidate resolved issues here and current external limits in `KNOWN-ISSUES.md`.
 
+### Security fixes after candidate `3b70e59`
+
+- Pin every GitHub API request to `github.com` and scope other GitHub CLI host
+  selection to child processes. Verify owner, repository name, canonical URL,
+  private visibility, and management marker before upload and during readback.
+- Check every real path in reachable branch/tag history using NUL-delimited
+  trees, retaining all names for shared blobs and keeping overrides per path.
+- Scan every upload-sized blob sequentially in full, removing the 2 MB gap.
+  Read failures stop publication; token recognition remains a limited safeguard.
+- Require owned `0700` answer extraction directories and `0600` regular files;
+  create them before writing answer bytes and reject unsafe inputs on collection.
+- Pin both the installation script and exported payload to the same reviewed
+  full SHA before executing any repository Python code.
+
 ### Review workflow history
 
 Dates below describe implementation history, not separate software releases. The initial workflow, run hardening, and authentication changes were integrated into the approved Vault line on 2026-08-23 under the corresponding commits below.

@@ -234,13 +234,19 @@ python3 <skill-dir>/scripts/review_repo.py event \
   --final-container deep-research-report --tab-id <browser-tab-id>
 ```
 
-Extract only that final container once into a non-symlink file under
-`/private/tmp` or the process temporary directory. Calculate its SHA-256 before
-collection and bind the file to the recorded conversation, tab, and container:
+Before writing any answer bytes, create a current-user-owned `0700` temporary
+directory under `/private/tmp` or the process temporary directory, and an empty
+`0600` regular file inside it, using the safe creation example in the
+[browser protocol](references/browser-protocol.md#waiting-and-collection).
+Extract only that final container once into the pre-created file, preserving its
+permissions. Do not use symlinks or a shared directory, and do not repair an
+already exposed file with chmod; re-extract into a new private file instead.
+Calculate its SHA-256 before collection and bind it to the recorded conversation,
+tab, and container:
 
 ```bash
 python3 <skill-dir>/scripts/review_repo.py collect \
-  --run-dir /absolute/run --answer-file /private/tmp/temporary-answer.md \
+  --run-dir /absolute/run --answer-file /private/tmp/pgpr-answer-RANDOM/answer.md \
   --answer-sha256 SHA256 --source-kind deep-research-report \
   --source-conversation-url https://chatgpt.com/c/CONVERSATION \
   --source-tab-id <browser-tab-id>

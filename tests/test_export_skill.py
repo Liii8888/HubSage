@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import shutil
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -57,6 +58,33 @@ class DistributionTests(unittest.TestCase):
         for relative in [*MODULE.PAYLOAD, "DISTRIBUTION.json", "UPSTREAM.md"]:
             self.assertEqual((first / relative).read_bytes(), (second / relative).read_bytes())
         MODULE.verify_snapshot(self.repo, self.ref, first)
+
+    def test_readme_install_executes_reviewed_exporter_after_default_branch_advances(self) -> None:
+        exporter = self.repo / "scripts/export_skill.py"
+        shutil.copyfile(ROOT / "scripts/export_skill.py", exporter)
+        self.git("add", "scripts/export_skill.py")
+        self.git("commit", "-qm", "reviewed exporter")
+        reviewed = self.git("rev-parse", "HEAD")
+        marker = self.root / "unreviewed-exporter-executed"
+        exporter.write_text(f"from pathlib import Path\nPath({str(marker)!r}).touch()\nraise SystemExit(91)\n")
+        self.git("add", "scripts/export_skill.py")
+        self.git("commit", "-qm", "later unreviewed exporter")
+        default_head = self.git("rev-parse", "HEAD")
+        installed = self.root / "installed"
+        # Exercise the documented installation commands with a local origin.
+        recipe = (ROOT / "README.md").read_text().split("```bash\n", 1)[1].split("```", 1)[0]
+        recipe = recipe.replace("FULL_REVIEWED_COMMIT_SHA", reviewed)
+        recipe = recipe.replace("https://github.com/Liii8888/HubSage.git", shlex.quote(str(self.repo)))
+        recipe = recipe.replace('"$HOME/.agents/skills/private-github-pro-review"', shlex.quote(str(installed)))
+        recipe = recipe.replace("python3 scripts/", shlex.quote(sys.executable) + " scripts/")
+        subprocess.run(["bash", "-eu", "-c", recipe], cwd=self.root, check=True,
+                       capture_output=True, text=True)
+        self.assertNotEqual(reviewed, default_head)
+        self.assertFalse(marker.exists())
+        checkout = self.root / "private-github-pro-review"
+        head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=checkout, text=True).strip()
+        self.assertEqual(head, reviewed)
+        MODULE.verify_snapshot(self.repo, reviewed, installed)
 
     def test_local_default_is_the_only_adaptation_and_explicit_environment_still_wins(self) -> None:
         local = str(self.root / 'legacy state "quoted"')

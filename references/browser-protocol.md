@@ -166,8 +166,32 @@ Then target only that final container and extract it once, preserving visible
 links when possible. Do not read the entire transcript. A short progress-only
 assistant container is not completion evidence.
 
-Write the extraction to a non-symlink file under `/private/tmp` or the process
-temporary directory. Compute its SHA-256 before `collect`. Collection must name
+Before writing any answer bytes, create a current-user-owned `0700` temporary
+directory and an empty `0600` regular file inside it. For example:
+
+```bash
+python3 - <<'PYTHON'
+import os
+import tempfile
+from pathlib import Path
+
+directory = Path(tempfile.mkdtemp(prefix="pgpr-answer-", dir="/private/tmp"))
+answer = directory / "answer.md"
+fd = os.open(answer, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+os.close(fd)
+print(answer)
+PYTHON
+```
+
+The process temporary directory is also allowed. Write the extraction into that
+pre-created file without replacing it with a file of different permissions.
+`collect` checks the opened directory and file for current-user ownership and
+modes `0700` / `0600`; it rejects shared directories, symlinks, non-regular files,
+and broader permissions before reading the answer. Never write into a public
+file and then chmod it. If an extraction was exposed, re-extract into a newly
+created private file; validation cannot undo earlier exposure.
+
+Compute its SHA-256 before `collect`. Collection must name
 the same conversation URL, active tab, and final-container kind recorded by
 `wait-complete`; it rereads the file once and rejects a hash mismatch. The
 resulting evidence proves the archived local bytes and their asserted browser
