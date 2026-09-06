@@ -76,8 +76,9 @@ Deep Research is a separate state:
 
 Select the mode from the current user request; neither mode is preferred for
 all users. Do not repair a mismatch by silently changing run metadata. Before submission,
-close abandoned run-owned tabs and use `supersede` so the corrected run has its
-own evidence.
+close abandoned run-owned tabs and use `supersede` while the run is still before
+`composer-ready`. Once ready or blocked, use `end` with the actual observation,
+then publish the corrected review. A missing URL does not prove it was unsent.
 
 ## Source Binding
 
@@ -321,7 +322,9 @@ python3 <skill-dir>/scripts/review_repo.py collect --run-dir /absolute/run \
   --source-conversation-url https://chatgpt.com/c/CONVERSATION --source-tab-id TAB
 ```
 
-For a pre-submission correction, close abandoned owned tabs and use `supersede`
-with the corrected mode, binding, reason, and complete message file. When using
+For a correction before `composer-ready`, close abandoned owned tabs and use
+`supersede` with the corrected mode, binding, reason, and complete message file.
+Ready or blocked runs cannot be superseded: use the observed `end` path first,
+then publish a new run against the same project backup. When using
 `raw-url`, that replacement message must contain the exact verified URL; retain
 the user's requirements unchanged. The old combined CLI remains supported.

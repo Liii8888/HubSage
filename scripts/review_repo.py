@@ -76,13 +76,9 @@ ACTIVE_STATUSES = {
     "completed",
 }
 ARCHIVABLE_STATUSES = {"prepared", "collected", "blocked", "failed", "superseded", "ended"}
-SUPERSEDEABLE_STATUSES = {
-    "published",
-    "source-index-pending",
-    "source-bound",
-    "composer-ready",
-    "blocked",
-}
+# Once the composer is ready, Send may happen before its acknowledgement is
+# saved. Retire that uncertain run only through end's explicit observation.
+SUPERSEDEABLE_STATUSES = {"published", "source-index-pending", "source-bound"}
 CHATGPT_CONVERSATION_RE = re.compile(
     r"^https://chatgpt\.com/(?:c/[^/?#]+|g/[^/?#]+/c/[^/?#]+)(?:[?#].*)?$"
 )
@@ -1876,7 +1872,8 @@ def command_supersede(args: argparse.Namespace) -> None:
     verify_prompt_snapshot(old_dir, old_state)
     if old_state.get("status") not in SUPERSEDEABLE_STATUSES:
         abort(
-            "supersede requires a published pre-submission run, got "
+            "supersede requires an unsent run before composer-ready; "
+            "use end after checking a ready or blocked run; got "
             f"{old_state.get('status')}"
         )
     if old_state.get("conversation_url"):

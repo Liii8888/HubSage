@@ -1167,7 +1167,6 @@ class BrowserStateTests(unittest.TestCase):
 
     def test_supersede_serializes_against_a_concurrent_browser_write(self) -> None:
         self.bind_source()
-        self.ready_composer()
         self.tab("close", "chat-1", reason="correcting draft")
         prompt = self.root / "corrected.txt"
         prompt.write_text("corrected request\n")
@@ -1177,7 +1176,7 @@ class BrowserStateTests(unittest.TestCase):
             "import importlib.util,pathlib,sys", "spec=importlib.util.spec_from_file_location('pgpr',sys.argv[1])",
             "m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)",
             "pathlib.Path(sys.argv[3]).touch()",
-            "args=m.build_parser().parse_args(['event','--run-dir',sys.argv[2],'--event','submitted','--conversation-url','https://chatgpt.com/c/concurrent','--submission-method','send-button','--tab-id','chat-1'])",
+            "args=m.build_parser().parse_args(['event','--run-dir',sys.argv[2],'--event','warning','--message','concurrent warning'])",
             "try: args.func(args)",
             "except m.ReviewError: pathlib.Path(sys.argv[4]).write_text('rejected')",
             "else: pathlib.Path(sys.argv[4]).write_text('accepted')"))
@@ -1216,6 +1215,24 @@ class BrowserStateTests(unittest.TestCase):
                 if child.poll() is None:
                     child.kill()
                 child.wait(timeout=5)
+
+    def test_ready_or_blocked_run_cannot_supersede_unknown_submission(self) -> None:
+        self.bind_source()
+        self.ready_composer()
+        self.tab("close", "chat-1", reason="draft abandoned")
+        corrected = self.root / "corrected-unknown-send.txt"
+        corrected.write_text("different review request\n")
+        args = SimpleNamespace(run_dir=str(self.run_dir), mode="pro", binding="source-chip",
+                               prompt_file=str(corrected), reason="change request")
+        for status in ("composer-ready", "blocked"):
+            if status == "blocked":
+                self.event("warning", message="unknown Send acknowledgement")
+            with self.subTest(status=status), self.assertRaisesRegex(MODULE.ReviewError, "use end"):
+                MODULE.command_supersede(args)
+            self.assertEqual(MODULE.load_run(self.run_dir)["status"], status)
+            active = MODULE.active_runs_for_source(self.run_dir.parent.parent, self.repo)
+            self.assertEqual(len(active), 1)
+            self.assertEqual(len(list(self.run_dir.parent.iterdir())), 1)
 
 class SecurityBoundaryTests(unittest.TestCase):
     def setUp(self) -> None:

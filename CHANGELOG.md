@@ -53,7 +53,9 @@ Publication dates are recorded by GitHub Releases; this file groups the version'
   Complete pending reviews through the original strict proof, including a
   disconnected tab's verified replacement, without resetting wait limits.
 - Keep warning states active until the review is confirmed ended or never sent,
-  including interruption after Send but before its saved URL is recorded. Add evidence-preserving `end` and a per-run upload execution lock that
+  including interruption after Send but before its saved URL is recorded.
+  Neither archive nor supersede can bypass that observation; snapshot-only
+  supersede remains available before the composer becomes ready. Add evidence-preserving `end` and a per-run upload execution lock that
   also covers transfer children; interrupted uploads retain their target mapping.
 - Shorten the Skill to the main SOP and keep browser details in the protocol.
 

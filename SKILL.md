@@ -104,8 +104,10 @@ or the user asks. A pasted URL does not prove that ChatGPT retrieved the code.
 
 Do not split one review into multiple chats. If the local record was interrupted
 around Send, inspect the owned tab first: record an already-sent conversation,
-never blindly send again. A pre-submission correction can reuse the frozen
-upload through `supersede`, after closing the abandoned drafts.
+never blindly send again. Before `composer-ready`, a correction can reuse the
+frozen upload through `supersede` after closing abandoned drafts. Once ready or
+blocked, first inspect and `end` the old run, then publish the corrected review;
+absence of a recorded URL alone cannot prove that Send never happened.
 
 ## 4. Wait, collect, and review again
 
