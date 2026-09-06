@@ -731,10 +731,13 @@ def resolve_mirror(
 
 def require_raw_repository_url(prompt: bytes, mirror: str) -> str:
     url = f"https://github.com/{mirror}"
-    if url.encode("utf-8") not in prompt:
+    # Accept only a complete plain URL, separated from surrounding text. Do not
+    # extract a matching substring from another repository, URL, or Markdown
+    # link. Preparation can safely prefix the verified URL for ambiguous input.
+    if url.encode("utf-8") not in prompt.split():
         abort(
-            "raw-url binding requires the exact private repository URL to already "
-            f"appear unchanged in the prompt: {url}"
+            "raw-url binding requires the exact private repository URL as a "
+            f"separate whitespace-delimited token in the prompt: {url}"
         )
     return url
 
@@ -1138,6 +1141,8 @@ def verify_prompt_snapshot(run_dir: Path, state: dict[str, Any]) -> dict[str, An
             abort("original request byte drift")
         if compose_review_prompt(request, str(state.get("mirror")), str(state.get("binding"))) != data:
             abort("frozen prompt is not the verified URL plus unchanged original request")
+    if state.get("binding") == "raw-url":
+        require_raw_repository_url(data, str(state.get("mirror")))
     return observed
 
 

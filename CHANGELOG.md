@@ -59,6 +59,18 @@ Publication dates are recorded by GitHub Releases; this file groups the version'
   also covers transfer children; interrupted uploads retain their target mapping.
 - Shorten the Skill to the main SOP and keep browser details in the protocol.
 
+### Source-link correction after candidate `bec1c70`
+
+- Recognize the target repository only as a complete plain URL token, never a
+  substring of a different repository or a nested URL. Ambiguous URL/Markdown
+  forms receive a separate verified link while original request bytes remain
+  unchanged. Keep ordinary standalone links unduplicated and source-chip behavior
+  unchanged. Recheck raw references before browser use, including old combined
+  v3 records; do not rewrite historical records to hide an invalid reference.
+- Add regressions for incorrect repository suffixes, embedded query links,
+  ambiguous markup, unchanged request/upload receipts, and preparation through
+  composer-ready with the correct standalone target URL.
+
 ### Review workflow history
 
 Dates below describe implementation history, not separate software releases. The initial workflow, run hardening, and authentication changes were integrated into the approved Vault line on 2026-08-23 under the corresponding commits below.

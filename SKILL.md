@@ -75,7 +75,9 @@ python3 <skill-dir>/scripts/review_repo.py prepare-review \
 ```
 
 The default `raw-url` route prefixes the verified GitHub URL to the unchanged
-request, unless that exact URL is already present. `request.txt` preserves the
+request, unless that exact URL is already a separate plain-text token (surrounded
+by whitespace or message boundaries). Other URL/Markdown forms get the verified
+link added on its own line; the request is not rewritten. `request.txt` preserves the
 original bytes; `prompt.txt` is the complete frozen message to paste. Upload
 receipts remain unchanged. Do not edit either file after preparation.
 
@@ -86,6 +88,8 @@ in the picker. Do not impose the picker route on a link-based review.
 The original combined `publish --mode ... --prompt-file ...` command remains
 supported for existing callers. Its complete Prompt stays byte-for-byte and its
 existing binding default remains `source-chip`.
+For its explicit `raw-url` option, include the complete repository URL as a
+separate plain-text token in the supplied message.
 
 ## 3. Send once in ChatGPT Pro
 

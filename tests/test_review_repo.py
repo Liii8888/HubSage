@@ -428,14 +428,31 @@ class PersistentBackupTests(unittest.TestCase):
     def test_raw_url_binding_requires_exact_repository_url(self) -> None:
         mirror = "tester/private-project"
         expected = "https://github.com/tester/private-project"
-        self.assertEqual(
-            MODULE.require_raw_repository_url(
-                f"请审查 {expected}\n".encode("utf-8"), mirror
-            ),
-            expected,
-        )
+        for prompt in (expected, f"请审查 {expected}\n", f"before\t{expected}\r\nafter"):
+            with self.subTest(prompt=prompt):
+                self.assertEqual(
+                    MODULE.require_raw_repository_url(prompt.encode("utf-8"), mirror), expected
+                )
         with self.assertRaisesRegex(MODULE.ReviewError, "exact private repository URL"):
             MODULE.require_raw_repository_url(b"review this repository\n", mirror)
+
+    def test_raw_url_does_not_accept_substrings_or_ambiguous_markup(self) -> None:
+        mirror = "tester/private-project"
+        url = f"https://github.com/{mirror}"
+        for reference in (
+            url + "-old", url + "/tree/main", url + "?query=other", url + "#fragment",
+            "https://example.invalid/?repo=" + url,
+            "https://example.invalid/(" + url + ")",
+            "prefix" + url, "[" + url + "](https://example.invalid/)",
+            "[repository](" + url + ")", "<" + url + ">", url + ".",
+        ):
+            original = ("检查 " + reference + "\r\n  exact bytes  \n").encode()
+            with self.subTest(reference=reference):
+                with self.assertRaisesRegex(MODULE.ReviewError, "exact private repository URL"):
+                    MODULE.require_raw_repository_url(original, mirror)
+                self.assertEqual(MODULE.compose_review_prompt(original, mirror, "raw-url"),
+                                 url.encode() + b"\n\n" + original)
+                self.assertEqual(MODULE.compose_review_prompt(original, mirror, "source-chip"), original)
 
 
 class BrowserStateTests(unittest.TestCase):
@@ -751,14 +768,20 @@ class BrowserStateTests(unittest.TestCase):
         )
 
     def test_raw_url_binding_remains_reference_only_after_app_grant(self) -> None:
+        prompt = b"https://github.com/tester/private-project\n\nexact prompt\n"
+        MODULE.atomic_write(self.run_dir / "prompt.txt", prompt)
+        prompt_evidence = {"prompt_sha256": MODULE.sha256_bytes(prompt), "prompt_bytes": len(prompt)}
         state = MODULE.load_run(self.run_dir)
+        state.update(prompt_evidence)
         state["binding"] = "raw-url"
         state["binding_assurance"] = "raw-url-reference-only-v1"
         MODULE.save_run(self.run_dir, state)
         manifest = MODULE.read_json(self.run_dir / "source-manifest.json")
+        manifest.update(prompt_evidence)
         manifest["binding"] = "raw-url"
         MODULE.write_json(self.run_dir / "source-manifest.json", manifest)
         published = MODULE.read_json(self.run_dir / "publish-result.json")
+        published.update(prompt_evidence)
         published["binding"] = "raw-url"
         published["binding_assurance"] = "raw-url-reference-only-v1"
         published["raw_repository_url"] = "https://github.com/tester/private-project"
@@ -769,6 +792,22 @@ class BrowserStateTests(unittest.TestCase):
         self.assertEqual(after["source_index"], "not-applicable")
         self.assertEqual(after["binding_assurance"], "raw-url-reference-only-v1")
         self.assertEqual(after["github_app_auth"]["status"], "verified")
+
+    def test_legacy_combined_raw_prompt_is_rechecked_before_browser_use(self) -> None:
+        state = MODULE.load_run(self.run_dir)
+        state["binding"] = "raw-url"
+        # Old v3 combined-command receipts may be internally consistent while
+        # containing a URL accepted by the earlier substring check.
+        self.assertNotIn("review_input_version", state)
+        url = "https://github.com/tester/private-project"
+        for reference in (url + "-old", "https://example.invalid/?repo=" + url):
+            prompt = ("Review " + reference + "\n").encode()
+            MODULE.atomic_write(self.run_dir / "prompt.txt", prompt)
+            state.update(prompt_sha256=MODULE.sha256_bytes(prompt), prompt_bytes=len(prompt))
+            with self.subTest(reference=reference), self.assertRaisesRegex(
+                MODULE.ReviewError, "exact private repository URL"
+            ):
+                MODULE.verify_prompt_snapshot(self.run_dir, state)
 
     def test_collect_requires_browser_source_and_exact_input_hash(self) -> None:
         self.bind_source()
@@ -1746,6 +1785,34 @@ class UploadFirstTests(unittest.TestCase):
         (run_dir / "request.txt").write_bytes(b"changed request")
         with self.assertRaisesRegex(MODULE.ReviewError, "request byte drift"):
             MODULE.verify_prompt_snapshot(run_dir, prepared)
+
+    def test_ambiguous_request_gets_verified_url_before_composer_ready(self) -> None:
+        url = f"https://github.com/{self.mirror}"
+        for reference in (url + "-old", "https://example.invalid/?repo=" + url):
+            with self.subTest(reference=reference):
+                original = ("Review " + reference + "\r\n原文不改。  \n").encode()
+                self.request.write_bytes(original)
+                uploaded = self.publish()
+                run_dir = Path(uploaded["run_dir"])
+                receipts = {name: (run_dir / name).read_bytes()
+                            for name in ("source-manifest.json", "publish-result.json")}
+                state = self.prepare(uploaded)
+                self.assertEqual((run_dir / "request.txt").read_bytes(), original)
+                self.assertEqual((run_dir / "prompt.txt").read_bytes(), url.encode() + b"\n\n" + original)
+                for name, content in receipts.items():
+                    self.assertEqual((run_dir / name).read_bytes(), content)
+                base = ("--run-dir", str(run_dir))
+                self.cli("tab", *base, "--action", "register", "--tab-id", "chat", "--url", "https://chatgpt.com/")
+                self.cli("tab", *base, "--action", "activate", "--tab-id", "chat")
+                self.cli("event", *base, "--event", "source-bound", "--capability-label", "Pro",
+                         "--deep-research", "inactive", "--app-grant", "verified", "--binding", "raw-url",
+                         "--repository", self.mirror, "--default-branch", state["review_branch"],
+                         "--commit", state["review_commit"], "--tab-id", "chat")
+                ready = self.cli("event", *base, "--event", "composer-ready", "--prompt-sha256", state["prompt_sha256"],
+                                 "--fill-method", "single-operation", "--tab-id", "chat")
+                self.assertEqual(ready["status"], "composer-ready")
+                MODULE.verify_published_identity(run_dir, MODULE.load_run(run_dir))
+                self.cli("end", *base, "--observed", "not-submitted", "--reason", "synthetic test completed")
 
     def test_both_modes_complete_without_a_second_send_or_wait(self) -> None:
         for mode, research, container in (("pro", "inactive", "assistant-turn"),
