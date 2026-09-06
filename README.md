@@ -43,6 +43,14 @@ CLI 入口是 `scripts/review_repo.py`。先 `publish --repo /absolute/project/p
 - **Pro 模型**：使用前看看当前账号的网页模型选择器是否提供 `Pro`，发送前再确认当前对话已选中 `Pro`；具体模型名称以页面为准，`high`／`xhigh` 推理强度不能替代 Pro。`review` 模式还会使用 Deep Research。
 - **浏览器工具**：准备能操作已登录 ChatGPT 会话的受支持浏览器工具。例如使用 Chrome 时，按桌面端 `Computer Use` 设置提示安装配套插件和浏览器扩展，并连接实际登录的浏览器配置文件；本 Skill 不限定插件名称。参见 [浏览器扩展配置](https://learn.chatgpt.com/docs/chrome-extension#set-up-the-chrome-extension)。
 
+## 安全声明
+
+使用本 Skill 需显式授权备份和网页审查。它把选定项目备份到用户自己的 GitHub 私有仓库，再向用户已登录的 ChatGPT 提交审查要求和仓库链接。备份包含本地分支、tag 与可达历史；历史中已删除的文件也可能上传，未提交内容按用户选择纳入。源码分发仓库 `Liii8888/HubSage` 不接收用户项目；本 Skill 没有维护者自建的数据接收端或遥测上报。
+
+认证使用 Git／GitHub CLI 的既有机制及受支持的浏览器会话；不要求把原始 token 交给 Agent，也不复制浏览器 cookie 或 profile。仓库授权由用户控制：`All repositories` 是可选的便利配置，会扩大该 App 可访问的仓库范围；只授权目标仓库也能使用，本 Skill 不会自行扩大授权。
+
+上传前核对目标仓库身份、私有状态和实际 Git 地址，并扫描已识别的敏感路径与凭据模式；回答临时文件按用户专用权限创建。扫描不是完整的秘密检测：未知凭据、业务机密，以及 commit/tag 消息等元数据不在完整检测保障内。私有上传仍会让数据进入 GitHub／ChatGPT，使用者应确认项目及历史适合交给这些服务。网页来源记录也不能证明模型内部实际读取了哪些内容；详见 [行为与数据](#行为与数据) 和 [当前限制](KNOWN-ISSUES.md)。
+
 ## 行为与数据
 
 | 内容 | 去向与用途 |
@@ -51,8 +59,6 @@ CLI 入口是 `scripts/review_repo.py`。先 `publish --repo /absolute/project/p
 | 用户的原始审查要求、建库上传后取得的链接或选定来源 | 用户已登录的 `chatgpt.com` 对话；通过用户已授权的 GitHub 连接访问链接指向的私有库；也支持用户选择精确来源 chip。 |
 | 项目映射、Prompt 副本、来源证据和收集到的回答 | 本机配置的状态目录；回答提取先写入用户专用临时目录。 |
 | 登录与仓库访问权限 | 使用既有 GitHub CLI / Git 凭据机制和受支持的浏览器会话；不要求向 Agent 提供原始 token，不记录 token，不复制浏览器 cookie 或 profile。 |
-
-`Liii8888/HubSage` 是这个 Skill 的公开源码分发仓库，不是用户项目的上传目标。实现没有维护者自建的数据接收地址或遥测上报。向 GitHub 和 ChatGPT 提交数据是需要用户授权的核心功能；仓库权限仍由用户控制。
 
 Git 上传前会解析实际读取和上传地址，拒绝指向其他主机、其他仓库或多个目标的配置。指向同一 GitHub 仓库的标准 HTTPS／SSH 转换受支持；检查只在临时仓库内配置 remote，不修改用户的全局 Git 配置。
 

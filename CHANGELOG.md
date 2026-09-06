@@ -73,6 +73,9 @@ Publication dates are recorded by GitHub Releases; this file groups the version'
 - Add regressions for incorrect repository suffixes, embedded query links,
   inline/multi-line Markdown, unchanged request/upload receipts, and preparation
   through composer-ready with the correct first-line URL.
+- Document the authorized destinations, credential/session handling, optional
+  repository grants, and limits of scanning and browser evidence in a concise
+  README security statement after the independent follow-up review.
 
 ### Review workflow history
 
