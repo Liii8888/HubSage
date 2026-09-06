@@ -26,6 +26,15 @@ python3 scripts/export_skill.py export \
 
 CLI 入口保持为 `scripts/review_repo.py`。`publish --mode review` 使用 Pro + Deep Research，`--mode pro` 使用 Pro；完整参数可通过 `--help` 查看。执行约束和浏览器步骤见 [SKILL.md](SKILL.md) 与 [browser protocol](references/browser-protocol.md)。
 
+### 首次使用的小提示
+
+以下供首次配置或访问异常时按需参考，不增加每次运行的强制预检。
+
+- **ChatGPT 的 GitHub 连接**：确认网页版已连接 GitHub App／连接器，并能访问用于审查的私有备份库。本机 `gh` 登录和 ChatGPT 的连接授权需要分别配置。插件安装与连接方式见 [OpenAI 官方说明](https://learn.chatgpt.com/docs/plugins)。
+- **仓库权限范围**：如果经常新建备份库，并愿意授权所在账号或组织的全部仓库，建议在对应 GitHub App 的 `Repository access` 中选择 `All repositories`，省去逐库补授权。也可用 `Only select repositories`，但新建备份库后要把它加入授权列表。这里的全部授权仅适用于该 App 安装所在的账号或组织；它不会把私有库改成公开库。设置入口见 [GitHub 官方说明](https://docs.github.com/en/apps/using-github-apps/reviewing-and-modifying-installed-github-apps)。
+- **Pro 模型**：使用前看看当前账号的网页模型选择器是否提供 `Pro`，发送前再确认当前对话已选中 `Pro`；具体模型名称以页面为准，`high`／`xhigh` 推理强度不能替代 Pro。`review` 模式还会使用 Deep Research。
+- **浏览器工具**：准备能操作已登录 ChatGPT 会话的受支持浏览器工具。例如使用 Chrome 时，按桌面端 `Computer Use` 设置提示安装配套插件和浏览器扩展，并连接实际登录的浏览器配置文件；本 Skill 不限定插件名称。参见 [浏览器扩展配置](https://learn.chatgpt.com/docs/chrome-extension#set-up-the-chrome-extension)。
+
 ## 行为与数据
 
 - 保存分支、tag 和可达历史；未提交快照需明确授权，源仓库保持原状。
