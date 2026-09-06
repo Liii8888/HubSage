@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import shutil
 import shlex
 import subprocess
@@ -83,7 +84,11 @@ class DistributionTests(unittest.TestCase):
         # that could conceal a missing short-circuit in the documentation.
         installed = self.root / "installed"
         recipe = (ROOT / "README.md").read_text().split("```bash\n", 1)[1].split("```", 1)[0]
-        recipe = recipe.replace("FULL_REVIEWED_COMMIT_SHA", reviewed)
+        recipe, pins = re.subn(
+            r"(?m)^  PGPR_REVIEWED_SHA=[0-9a-f]{40} &&$",
+            f"  PGPR_REVIEWED_SHA={reviewed} &&", recipe,
+        )
+        self.assertEqual(pins, 1, "install recipe must pin one full reviewed SHA")
         recipe = recipe.replace("https://github.com/Liii8888/private-github-pro-review.git", shlex.quote(str(self.repo)))
         recipe = recipe.replace('"$HOME/.agents/skills/private-github-pro-review"', shlex.quote(str(installed)))
         recipe = recipe.replace("python3 scripts/", shlex.quote(sys.executable) + " scripts/")

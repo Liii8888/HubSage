@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Reorganize the project guide around agent installation, features, usage,
+  optional first-use setup, security, recovery, and validation. Add a Chinese
+  companion README and pin the installation example to the v2.0.0 release SHA.
+- Keep the released runtime, installed Vault snapshot, and v2.0.0 assets unchanged.
+
 ## v2.0.0
 
 This version continues the HubSage release line as Private GitHub Pro Review.
