@@ -138,6 +138,27 @@ class PersistentBackupTests(unittest.TestCase):
             first,
         )
 
+    def test_branch_and_tag_prefix_conflicts_preserve_existing_refs(self) -> None:
+        for kind in ("heads", "tags"):
+            for old, new in (("topic", "topic/feature"), ("topic/feature", "topic")):
+                with self.subTest(kind=kind, old=old):
+                    base = self.root / (kind + "-" + old.replace("/", "-"))
+                    source, remote = base / "source", base / "remote.git"
+                    init_repo(source)
+                    init_repo(remote, bare=True)
+                    first = commit_file(source, "value.txt", "one\n", "one")
+                    second = commit_file(source, "value.txt", "two\n", "two")
+                    remote_map = {}
+                    publish = MODULE.publish_branch if kind == "heads" else MODULE.publish_tag
+                    original = publish(source, str(remote), remote_map, old, first, "first")
+                    # A user branch/tag called archive must not block fallback either.
+                    publish(source, str(remote), remote_map, "archive", first, "first")
+                    destination = publish(source, str(remote), remote_map, new, second, "second")
+                    self.assertNotEqual(destination, original)
+                    self.assertEqual(command("git", "rev-parse", original, cwd=remote), first)
+                    self.assertEqual(command("git", "rev-parse", destination, cwd=remote), second)
+                    self.assertEqual(command("git", "rev-parse", f"refs/{kind}/archive", cwd=remote), first)
+
     def test_wip_staging_preserves_source_and_includes_nonignored_files(self) -> None:
         source = self.root / "source"
         init_repo(source)
@@ -610,6 +631,149 @@ class BrowserStateTests(unittest.TestCase):
             submission_method=method,
             tab_id="chat-1",
         )
+
+    def complete_review(self) -> dict:
+        self.bind_source()
+        self.ready_composer()
+        self.submit()
+        self.event("wait-start", tab_id="chat-1", generation_sentinel="generation-1")
+        self.event("wait-complete", tab_id="chat-1", generation_sentinel="generation-1",
+                   completion_proof=MODULE.COMPLETION_PROOF, final_container="deep-research-report")
+        return MODULE.load_run(self.run_dir)
+
+    def collect_answer(self, answer: Path, tab_id: str = "chat-1") -> None:
+        with redirect_stdout(io.StringIO()):
+            MODULE.command_collect(SimpleNamespace(
+                run_dir=str(self.run_dir), answer_file=str(answer),
+                answer_sha256=MODULE.sha256_bytes(answer.read_bytes()),
+                source_kind="deep-research-report", source_tab_id=tab_id,
+                source_conversation_url="https://chatgpt.com/c/review-run"))
+
+    def test_completed_answer_rebinds_only_after_disconnection(self) -> None:
+        before = self.complete_review()
+        self.tab("register", "replacement", kind="chatgpt-conversation",
+                 url=before["conversation_url"])
+        self.tab("activate", "replacement")
+        proof = dict(tab_id="replacement", generation_sentinel="generation-1",
+                     completion_proof=MODULE.COMPLETION_PROOF, final_container="deep-research-report")
+        with self.assertRaises(MODULE.ReviewError):
+            self.event("wait-complete", **proof)
+        self.tab("close", "chat-1", reason="disconnected")
+        for changes in ({"generation_sentinel": "wrong"}, {"completion_proof": None},
+                        {"final_container": "assistant-turn"}, {"tab_id": "not-owned"}):
+            with self.subTest(changes=changes), self.assertRaises(MODULE.ReviewError):
+                self.event("wait-complete", **{**proof, **changes})
+        self.tab("register", "other-chat", kind="chatgpt-conversation", url="https://chatgpt.com/c/other")
+        self.tab("activate", "other-chat")
+        with self.assertRaises(MODULE.ReviewError):
+            self.event("wait-complete", **{**proof, "tab_id": "other-chat"})
+        self.tab("activate", "replacement")
+        self.event("wait-complete", **proof)
+        after = MODULE.load_run(self.run_dir)
+        self.assertEqual(after["completion_history"], [before["completion_evidence"]])
+        self.assertEqual(after["completion_evidence"]["wait_tab_id"], "chat-1")
+        self.assertEqual((after["wait_count"], after["reconnect_count"]), (1, 0))
+        answer = private_answer(self.root / "rebound.md")
+        self.collect_answer(answer, "replacement")
+        self.assertEqual(MODULE.load_run(self.run_dir)["status"], "collected")
+
+    def test_completed_rebind_preserves_an_earlier_wait_replacement(self) -> None:
+        self.bind_source()
+        self.ready_composer()
+        self.submit()
+        self.event("wait-start", tab_id="chat-1", generation_sentinel="generation-1")
+        self.event("pending")
+        self.tab("close", "chat-1", reason="disconnected")
+        for tab_id in ("second", "third"):
+            self.tab("register", tab_id, kind="chatgpt-conversation", url="https://chatgpt.com/c/review-run")
+            self.tab("activate", tab_id)
+            self.event("wait-complete", tab_id=tab_id, generation_sentinel="generation-1",
+                       completion_proof=MODULE.COMPLETION_PROOF, final_container="deep-research-report")
+            if tab_id == "second":
+                self.tab("close", tab_id, reason="disconnected")
+        state = MODULE.load_run(self.run_dir)
+        self.assertEqual(state["completion_evidence"]["wait_tab_id"], "chat-1")
+        self.assertEqual(state["completion_history"][0]["tab_id"], "second")
+        self.assertEqual(state["wait_count"], 1)
+
+    def assert_collect_resumes_at(self, checkpoint: str) -> None:
+        self.complete_review()
+        answer = private_answer(self.root / "extract.md")
+        original = getattr(MODULE, checkpoint)
+        def interrupt(*args, **kwargs):
+            if checkpoint != "save_run":
+                original(*args, **kwargs)
+            raise KeyboardInterrupt("synthetic collection interruption")
+        with mock.patch.object(MODULE, checkpoint, side_effect=interrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                self.collect_answer(answer)
+        self.assertEqual(MODULE.load_run(self.run_dir)["status"], "completed")
+        self.assertEqual((self.run_dir / "answer.md").read_bytes(), answer.read_bytes())
+        self.collect_answer(answer)
+        state = MODULE.load_run(self.run_dir)
+        self.assertEqual(state["status"], "collected")
+        self.assertEqual(state["answer_sha256"], MODULE.sha256_bytes(answer.read_bytes()))
+        self.assertFalse(MODULE.run_holds_source(state))
+
+    def test_collect_resumes_after_answer_write(self) -> None:
+        self.assert_collect_resumes_at("atomic_write")
+
+    def test_collect_resumes_after_event_write(self) -> None:
+        self.assert_collect_resumes_at("append_event")
+
+    def test_collect_resumes_before_run_save(self) -> None:
+        self.assert_collect_resumes_at("save_run")
+
+    def test_collect_recovery_rejects_different_or_unsafe_saved_answer(self) -> None:
+        self.complete_review()
+        answer = private_answer(self.root / "extract.md")
+        saved = private_answer(self.run_dir / "answer.md", "different answer\n")
+        with self.assertRaises(MODULE.ReviewError):
+            self.collect_answer(answer)
+        self.assertEqual(saved.read_text(), "different answer\n")
+        saved.write_bytes(answer.read_bytes())
+        saved.chmod(0o644)
+        with self.assertRaises(MODULE.ReviewError):
+            self.collect_answer(answer)
+        saved.unlink()
+        saved.symlink_to(answer)
+        with self.assertRaises(MODULE.ReviewError):
+            self.collect_answer(answer)
+        self.assertEqual(MODULE.load_run(self.run_dir)["status"], "completed")
+
+    def test_composer_requires_source_tab_and_allows_rebinding_before_ready(self) -> None:
+        self.bind_source()
+        self.tab("register", "chat-2")
+        self.tab("activate", "chat-2")
+        with self.assertRaises(MODULE.ReviewError):
+            self.ready_composer(tab_id="chat-2")
+        self.assertEqual(MODULE.load_run(self.run_dir)["status"], "source-bound")
+        self.tab("close", "chat-1", reason="disconnected")
+        self.bind_source(tab_id="chat-2")
+        self.ready_composer(tab_id="chat-2")
+        self.event("submitted", "https://chatgpt.com/c/rebound-draft",
+                   submission_method="send-button", tab_id="chat-2")
+        self.assertEqual(MODULE.load_run(self.run_dir)["status"], "submitted")
+
+    def test_submission_requires_matching_chatgpt_source_and_composer_tabs(self) -> None:
+        self.bind_source()
+        self.ready_composer()
+        for tab_id, kind in (("chat-2", "chatgpt-draft"), ("github", "github-temporary")):
+            self.tab("register", tab_id, kind=kind)
+            self.tab("activate", tab_id)
+            with self.subTest(tab=tab_id), self.assertRaises(MODULE.ReviewError):
+                self.event("submitted", "https://chatgpt.com/c/wrong-tab",
+                           submission_method="send-button", tab_id=tab_id)
+            self.assertEqual(MODULE.load_run(self.run_dir)["owned_tabs"][tab_id]["kind"], kind)
+        # Reject old v3 records that already contain mismatched composer evidence.
+        state = MODULE.load_run(self.run_dir)
+        state["composer_evidence"]["tab_id"] = "chat-2"
+        MODULE.save_run(self.run_dir, state)
+        self.tab("activate", "chat-2")
+        with self.assertRaises(MODULE.ReviewError):
+            self.event("submitted", "https://chatgpt.com/c/wrong-source",
+                       submission_method="send-button", tab_id="chat-2")
+        self.assertEqual(MODULE.load_run(self.run_dir)["status"], "composer-ready")
 
     def test_one_submit_two_waits_one_reconnect_and_one_collect(self) -> None:
         self.bind_source()
@@ -1752,6 +1916,103 @@ class UploadFirstTests(unittest.TestCase):
     def prepare(self, run: dict, mode: str = "pro", *extra: str) -> dict:
         return self.cli("prepare-review", "--run-dir", run["run_dir"], "--mode", mode,
                         "--prompt-file", str(self.request), *extra)
+
+    def test_late_source_refs_cannot_add_unscanned_uploads(self) -> None:
+        command("git", "branch", "stable", self.first, cwd=self.repo)
+        command("git", "tag", "stable", self.first, cwd=self.repo)
+        secret = commit_file(self.repo, "payload.txt",
+                             "-----BEGIN PRIVATE KEY-----\nsynthetic invalid key\n", "synthetic")
+        command("git", "reset", "--hard", self.first, cwd=self.repo)
+        original = MODULE.git
+        injected = False
+        def change_source_after_fetch(repo, *args, **kwargs):
+            nonlocal injected
+            result = original(repo, *args, **kwargs)
+            if not injected and args[:2] == ("config", "user.name"):
+                injected = True
+                for namespace in ("heads", "tags"):
+                    command("git", "update-ref", f"refs/{namespace}/late", secret, cwd=self.repo)
+                    command("git", "update-ref", f"refs/{namespace}/stable", secret, cwd=self.repo)
+            return result
+        with mock.patch.object(MODULE, "git", side_effect=change_source_after_fetch):
+            result = self.publish()
+        self.assertTrue(injected)
+        self.assertEqual(result["status"], "uploaded")
+        for namespace, destinations in (("heads", "branch_destinations"), ("tags", "tag_destinations")):
+            self.assertNotIn("late", result[destinations])
+            self.assertEqual(command("git", "rev-parse", f"refs/{namespace}/stable", cwd=self.remote), self.first)
+        self.assertEqual(command("git", "rev-parse", "HEAD", cwd=self.repo), self.first)
+
+    def test_changed_review_head_during_staging_stops_before_network(self) -> None:
+        second = commit_file(self.repo, "value.txt", "two\n", "two")
+        command("git", "reset", "--hard", self.first, cwd=self.repo)
+        original = MODULE.run
+        def change_during_clone(args, **kwargs):
+            result = original(args, **kwargs)
+            if args[:2] == ["git", "clone"]:
+                command("git", "update-ref", "refs/heads/main", second, cwd=self.repo)
+            return result
+        with mock.patch.object(MODULE, "run", side_effect=change_during_clone):
+            with self.assertRaisesRegex(MODULE.ReviewError, "source branch changed"):
+                self.publish()
+        self.assertEqual((self.creations, self.transfers), (0, 0))
+
+    def test_upload_scans_tree_and_blob_tag_roots_before_creation(self) -> None:
+        # These objects are outside the reviewed commit's history. Explicit
+        # upload roots must still scan paths and contents of non-commit tags.
+        secret = commit_file(self.repo, "payload.txt",
+                             "-----BEGIN PRIVATE KEY-----\nsynthetic invalid key\n", "synthetic")
+        tree = command("git", "rev-parse", secret + "^{tree}", cwd=self.repo)
+        blob = command("git", "rev-parse", secret + ":payload.txt", cwd=self.repo)
+        command("git", "reset", "--hard", self.first, cwd=self.repo)
+        for name, target in (("tree", tree), ("blob", blob)):
+            with self.subTest(target=name):
+                command("git", "tag", "-a", "fixture", target, "-m", "synthetic tag", cwd=self.repo)
+                with self.assertRaisesRegex(MODULE.ReviewError, "credential-like content"):
+                    self.publish()
+                self.assertEqual((self.creations, self.transfers), (0, 0))
+                command("git", "tag", "-d", "fixture", cwd=self.repo)
+
+    def test_missing_frozen_object_stops_before_repository_creation(self) -> None:
+        original = MODULE.prepare_staging_repository
+        def missing_object(*args, **kwargs):
+            staging = original(*args, **kwargs)
+            staging["branches"]["refs/heads/missing"] = "f" * 40
+            return staging
+        with mock.patch.object(MODULE, "prepare_staging_repository", side_effect=missing_object):
+            with self.assertRaises(MODULE.ReviewError):
+                self.publish()
+        self.assertEqual((self.creations, self.transfers), (0, 0))
+
+    def test_next_backup_archives_a_branch_prefix_conflict(self) -> None:
+        command("git", "branch", "topic", cwd=self.repo)
+        first = self.publish()
+        self.cli("end", "--run-dir", first["run_dir"], "--observed", "not-submitted", "--reason", "next review")
+        command("git", "branch", "-D", "topic", cwd=self.repo)
+        command("git", "checkout", "-b", "topic/feature", cwd=self.repo)
+        second = commit_file(self.repo, "value.txt", "two\n", "two")
+        result = self.publish()
+        self.assertEqual((result["status"], self.creations), ("uploaded", 1))
+        self.assertEqual(command("git", "rev-parse", "refs/heads/topic", cwd=self.remote), self.first)
+        self.assertEqual(command("git", "rev-parse", result["branch_destinations"]["topic/feature"], cwd=self.remote), second)
+        self.assertEqual(result["review_branch"], result["branch_destinations"]["topic/feature"].removeprefix("refs/heads/"))
+        self.assertEqual(result["review_commit"], second)
+
+    def test_net_zero_working_tree_upload_preserves_staging_and_uses_head(self) -> None:
+        (self.repo / "value.txt").write_text("staged change\n")
+        command("git", "add", "value.txt", cwd=self.repo)
+        (self.repo / "value.txt").write_text("one\n")
+        before = command("git", "status", "--porcelain=v1", cwd=self.repo)
+        index_before = (self.repo / ".git/index").read_bytes()
+        self.assertEqual(before, "MM value.txt")
+        self.assertEqual(command("git", "diff", "HEAD", cwd=self.repo), "")
+        result = self.publish("--include-working-tree")
+        self.assertEqual((result["status"], result["review_commit"]), ("uploaded", self.first))
+        self.assertEqual(command("git", "status", "--porcelain=v1", cwd=self.repo), before)
+        self.assertEqual((self.repo / ".git/index").read_bytes(), index_before)
+        manifest = MODULE.read_json(Path(result["run_dir"]) / "source-manifest.json")
+        self.assertTrue(manifest["source_dirty"])
+        self.assertFalse(manifest["working_tree_included"])
 
     def test_upload_then_freeze_link_preserves_request_and_upload_receipts(self) -> None:
         uploaded = self.publish()

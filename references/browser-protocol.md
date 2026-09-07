@@ -16,10 +16,10 @@ For one run, the browser side may perform:
   GitHub CLI device-authorization attempt plus one fresh attempt only if the
   first code expires while the user completes sudo-mode authentication;
 - one new saved-chat navigation;
-- one targeted visible-capability read;
-- one targeted Deep Research state read;
+- one targeted visible-capability and Deep Research state read; repeat those
+  checks only when replacing the verified draft before `composer-ready`;
 - at most one GitHub App grant check when existing authorization is unknown,
-  and one exact source binding/readback;
+  and one exact source binding/readback (repeat for a replacement draft);
 - one single-operation composer fill and one value readback;
 - one send-button click;
 - one long completion wait, plus one more only after a genuine disconnect;
@@ -218,7 +218,24 @@ is still generating and the wait budget is exhausted, keep it pending.
 If the old tab actually disconnected, record its close, then register and
 activate a replacement saved-conversation tab with exactly the same URL.
 Pending completion may use that replacement; evidence retains the original
-wait tab as well. An unrelated tab or a different conversation is rejected.
+wait tab as well. The same recovery also applies after `completed`: observe the
+recorded sentinel absent and the matching final container in the replacement,
+then repeat `wait-complete` with that tab ID, the original sentinel, completion
+proof, and container kind before `collect`. Earlier completion evidence is kept
+in `completion_history` and the event ledger; wait/reconnect counts do not reset.
+An unrelated tab or a different conversation is rejected.
+
+If collection stopped after writing `answer.md` but before saving its receipt,
+retry `collect` with the same verified extraction and source evidence. The CLI
+requires the saved file to have safe ownership/permissions and identical bytes;
+it completes the receipt without replacing a different answer. Keep the secure
+extraction until collection succeeds.
+
+Source binding, `composer-ready`, and `submitted` must identify the same owned
+ChatGPT tab. Before `composer-ready`, a replacement draft can repeat
+`source-bound` with fresh source/model checks. After `composer-ready`, inspect
+whether Send happened and follow the existing resume/end rules; do not silently
+rebind or send another message.
 
 If abandoning a run, first observe in the saved conversation that generation
 finished or was cancelled. Preserve an available answer through collection when

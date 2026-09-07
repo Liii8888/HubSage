@@ -2,6 +2,21 @@
 
 ## v2.0.1
 
+- Freeze backup branch/tag targets from the staging snapshot and scan the exact
+  upload roots, including WIP and non-commit tags. Missing objects or a changed
+  review branch stop before repository creation or transfer.
+- Recover collection after a completed conversation tab disconnects by recording
+  the same conversation's replacement and fresh completion evidence, retaining
+  earlier observations without resetting wait limits.
+- Resume an interrupted collection when the existing private answer file matches
+  the fully verified extraction; reject different bytes or unsafe saved files.
+- Archive branch/tag destinations with Git ref prefix conflicts, preserving
+  previous backups even when a user ref occupies the usual archive namespace.
+- Reuse HEAD when included staged/worktree changes yield an unchanged final tree,
+  avoiding an empty-commit failure and leaving the source index untouched.
+- Require source, composer and submission evidence from the same ChatGPT tab.
+  A replacement draft can rebind its source before the composer becomes ready.
+
 - Add brief, optional direction for drafting a review request from the user's
   goal. Supplied messages remain unchanged; Pro chooses its investigation and
   response structure.

@@ -437,11 +437,21 @@ def prepare_staging_repository(
     git(stage, "config", "user.name", "Private GitHub Pro Review")
     git(stage, "config", "user.email", "private-github-pro-review@example.invalid")
 
+    # Freeze only refs fetched into this private staging repository. Reading
+    # the live source again could add objects that this snapshot never scanned.
+    branches = {
+        "refs/heads/" + name.removeprefix("refs/remotes/source/"): object_id
+        for name, object_id in ref_map(stage, "refs/remotes/source").items()
+    }
+    tags = ref_map(stage, "refs/tags")
+    if branch is not None and branches.get(f"refs/heads/{branch}") != head:
+        abort("source branch changed while preparing the backup; retry from the current checkout")
+
     review_commit = head
     review_ref = branch or f"review/detached/{run_id}"
     if dirty:
         patch = run_bytes(
-            ["git", "diff", "--binary", "--full-index", "HEAD"],
+            ["git", "diff", "--binary", "--full-index", head],
             cwd=source,
         )
         if patch:
@@ -452,15 +462,19 @@ def prepare_staging_repository(
             )
         copy_untracked(source, stage, untracked)
         git(stage, "add", "--all")
-        git(
-            stage,
-            "commit",
-            "--quiet",
-            "-m",
-            f"review(wip): {run_id}\n\nSource-Commit: {head}\nSource-Tree: {head_tree}",
-        )
-        review_commit = git(stage, "rev-parse", "HEAD")
-        review_ref = f"review/wip/{run_id}"
+        # A dirty index can cancel the worktree diff. The final snapshot tree,
+        # rather than porcelain status, determines whether a WIP commit exists.
+        dirty = git(stage, "write-tree") != head_tree
+        if dirty:
+            git(
+                stage,
+                "commit",
+                "--quiet",
+                "-m",
+                f"review(wip): {run_id}\n\nSource-Commit: {head}\nSource-Tree: {head_tree}",
+            )
+            review_commit = git(stage, "rev-parse", "HEAD")
+            review_ref = f"review/wip/{run_id}"
 
     return {
         "stage": stage,
@@ -473,8 +487,8 @@ def prepare_staging_repository(
         "ignored": sorted(ignored),
         "review_commit": review_commit,
         "review_ref": review_ref,
-        "branches": ref_map(source, "refs/heads"),
-        "tags": ref_map(source, "refs/tags"),
+        "branches": branches,
+        "tags": tags,
     }
 
 
@@ -519,23 +533,29 @@ def object_sizes(repo: Path, objects: Iterable[str]) -> dict[str, tuple[str, int
 
 
 def reachable_objects(
-    repo: Path, commit: str
+    repo: Path, commit: str, *, roots: Iterable[str] | None = None
 ) -> tuple[dict[str, set[str]], dict[str, tuple[str, int]]]:
     # Object IDs are line-safe; paths are not. rev-list's object names also
     # discard aliases, so obtain every real path from NUL-delimited trees.
-    object_ids = git(repo, "rev-list", "--objects", "--no-object-names", "--all", commit).splitlines()
+    frozen_roots = set(roots if roots is not None else
+                       git(repo, "for-each-ref", "--format=%(objectname)").splitlines())
+    frozen_roots.add(commit)
+    root_input = "\n".join(sorted(frozen_roots)) + "\n"
+    object_ids = git(repo, "rev-list", "--objects", "--no-object-names", "--stdin",
+                     input_text=root_input).splitlines()
     sizes = object_sizes(repo, object_ids)
-    roots = set(git(repo, "rev-list", "--all", commit, "--format=%T", "--no-commit-header").splitlines())
+    trees = set(git(repo, "rev-list", "--format=%T", "--no-commit-header", "--stdin",
+                    input_text=root_input).splitlines())
     # Git also permits tags directly naming trees or blobs. Scan tree tags with
     # their full paths, and retain unnamed blobs in sizes for content scanning.
-    for object_id in set(git(repo, "for-each-ref", "--format=%(objectname)").splitlines()):
+    for object_id in frozen_roots:
         if sizes[object_id][0] == "tag":
             object_id = git(repo, "rev-parse", f"{object_id}^{{}}")
         if sizes[object_id][0] == "tree":
-            roots.add(object_id)
+            trees.add(object_id)
     names: dict[str, set[str]] = {}
     submodules: set[str] = set()
-    for tree in sorted(roots):
+    for tree in sorted(trees):
         for entry in tree_entries(repo, tree):
             if entry["mode"] == "160000":
                 submodules.add(entry["path"])
@@ -599,9 +619,11 @@ def validate_backup_payload(
     repo: Path,
     review_commit: str,
     allowed_sensitive_paths: set[str],
+    *,
+    roots: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     entries = tree_entries(repo, review_commit)
-    names, sizes = reachable_objects(repo, review_commit)
+    names, sizes = reachable_objects(repo, review_commit, roots=roots)
     oversized = []
     for object_id, (object_type, size) in sizes.items():
         if object_type == "blob" and size >= MAX_GITHUB_BLOB_BYTES:
@@ -856,6 +878,25 @@ def push_ref(repo: Path, remote_url: str, object_id: str, destination: str) -> N
     run(["git", "push", "--porcelain", remote_url, f"{object_id}:{destination}"], cwd=repo)
 
 
+def ref_name_conflicts(remote: dict[str, str], candidate: str) -> bool:
+    return any(name == candidate or name.startswith(candidate + "/")
+               or candidate.startswith(name + "/") for name in remote)
+
+
+def archive_destination(remote: dict[str, str], namespace: str, name: str, run_id: str) -> str:
+    preferred = f"{namespace}/archive/{ref_slug(name)}/{run_id}"
+    if not ref_name_conflicts(remote, preferred):
+        return preferred
+    # Even 'archive' may be a preserved user ref. A flat, bounded fallback avoids
+    # that namespace without deleting history or changing the source's names.
+    base = f"{namespace}/archive-{run_id}-{sha256_bytes(name.encode())[:12]}"
+    for suffix in range(len(remote) + 1):
+        candidate = base if suffix == 0 else f"{base}-{suffix}"
+        if not ref_name_conflicts(remote, candidate):
+            return candidate
+    abort("cannot allocate an archival ref")
+
+
 def publish_branch(
     repo: Path,
     remote_url: str,
@@ -868,13 +909,13 @@ def publish_branch(
     existing = remote.get(desired)
     if existing == object_id:
         return desired
-    if existing is None or is_ancestor(repo, existing, object_id):
+    if (existing is None and not ref_name_conflicts(remote, desired)) or (
+        existing is not None and is_ancestor(repo, existing, object_id)
+    ):
         push_ref(repo, remote_url, object_id, desired)
         remote[desired] = object_id
         return desired
-    archival = f"refs/heads/archive/{ref_slug(branch)}/{run_id}"
-    if archival in remote:
-        abort(f"archival branch collision: {archival}")
+    archival = archive_destination(remote, "refs/heads", branch, run_id)
     push_ref(repo, remote_url, object_id, archival)
     remote[archival] = object_id
     return archival
@@ -892,13 +933,11 @@ def publish_tag(
     existing = remote.get(desired)
     if existing == object_id:
         return desired
-    if existing is None:
+    if existing is None and not ref_name_conflicts(remote, desired):
         push_ref(repo, remote_url, object_id, desired)
         remote[desired] = object_id
         return desired
-    archival = f"refs/tags/archive/{ref_slug(tag)}/{run_id}"
-    if archival in remote:
-        abort(f"archival tag collision: {archival}")
+    archival = archive_destination(remote, "refs/tags", tag, run_id)
     push_ref(repo, remote_url, object_id, archival)
     remote[archival] = object_id
     return archival
@@ -1257,6 +1296,18 @@ def require_active_owned_tab(state: dict[str, Any], tab_id: str | None) -> dict[
     return tab
 
 
+def require_bound_chatgpt_tab(
+    state: dict[str, Any], tab_id: str | None, *evidence_fields: str
+) -> dict[str, Any]:
+    tab = require_active_owned_tab(state, tab_id)
+    if tab.get("kind") not in {"chatgpt-draft", "chatgpt-conversation"}:
+        abort("submission preparation requires an active run-owned ChatGPT tab")
+    for field in evidence_fields:
+        if tab_id != (state.get(field) or {}).get("tab_id"):
+            abort(f"{field} tab mismatch: continue in the same verified ChatGPT tab")
+    return tab
+
+
 def expected_deep_research(mode: str) -> str:
     return "active" if mode == "review" else "inactive"
 
@@ -1402,7 +1453,8 @@ def publish_with_lease(args: argparse.Namespace, execution: ExitStack) -> None:
                 committed_only=getattr(args, "committed_only", False),
             )
             payload = validate_backup_payload(
-                staging["stage"], staging["review_commit"], allowed
+                staging["stage"], staging["review_commit"], allowed,
+                roots=(*staging["branches"].values(), *staging["tags"].values()),
             )
             source_manifest = {
                 "version": RUN_VERSION,
@@ -1626,8 +1678,8 @@ def command_event(args: argparse.Namespace) -> None:
         state["status"] = "source-index-pending"
     elif event == "source-bound":
         if status != "published":
-            if version < RUN_VERSION or status != "source-index-pending":
-                abort(f"source-bound requires published or source-index-pending, got {status}")
+            if version < RUN_VERSION or status not in {"source-index-pending", "source-bound"}:
+                abort(f"source-bound requires published, source-index-pending or source-bound, got {status}")
         if version >= RUN_VERSION:
             evidence = validate_source_evidence(run_dir, state, args)
             state["source_evidence"] = evidence
@@ -1656,7 +1708,7 @@ def command_event(args: argparse.Namespace) -> None:
             )
         if args.fill_method != "single-operation":
             abort("composer-ready requires one single-operation composer fill")
-        require_active_owned_tab(state, args.tab_id)
+        require_bound_chatgpt_tab(state, args.tab_id, "source_evidence")
         evidence = {
             "prompt_sha256": args.prompt_sha256,
             "fill_method": args.fill_method,
@@ -1675,7 +1727,7 @@ def command_event(args: argparse.Namespace) -> None:
         if version >= RUN_VERSION:
             if args.submission_method != "send-button":
                 abort("submitted requires submission-method=send-button; Enter is forbidden")
-            tab = require_active_owned_tab(state, args.tab_id)
+            tab = require_bound_chatgpt_tab(state, args.tab_id, "source_evidence", "composer_evidence")
             tab["kind"] = "chatgpt-conversation"
             tab["url"] = args.conversation_url
             tab["saved"] = True
@@ -1713,10 +1765,12 @@ def command_event(args: argparse.Namespace) -> None:
             state["active_wait"] = evidence
         state["status"] = "waiting"
     elif event == "wait-complete":
-        if status not in {"waiting", "pending"}:
-            abort(f"wait-complete requires waiting or pending, got {status}")
+        if status not in {"waiting", "pending", "completed"}:
+            abort(f"wait-complete requires waiting, pending or completed, got {status}")
         if version >= RUN_VERSION:
-            active_wait = state.get("active_wait" if status == "waiting" else "last_incomplete_wait")
+            evidence_field = {"waiting": "active_wait", "pending": "last_incomplete_wait",
+                              "completed": "completion_evidence"}[status]
+            active_wait = state.get(evidence_field)
             if not isinstance(active_wait, dict):
                 abort("wait-complete requires recorded active wait evidence")
             if args.completion_proof != COMPLETION_PROOF:
@@ -1742,12 +1796,13 @@ def command_event(args: argparse.Namespace) -> None:
             same_tab = args.tab_id == active_wait.get("tab_id")
             old_tab = state.get("owned_tabs", {}).get(active_wait.get("tab_id"), {})
             replacement = (
-                status == "pending" and old_tab.get("closed_at")
+                status in {"pending", "completed"} and old_tab.get("closed_at")
                 and old_tab.get("close_reason") == "disconnected"
                 and old_tab.get("url") == state.get("conversation_url")
             )
             if (
                 not (same_tab or replacement)
+                or (status == "completed" and not replacement)
                 or tab.get("kind") != "chatgpt-conversation"
                 or tab.get("url") != state.get("conversation_url")
                 or active_wait.get("conversation_url") != state.get("conversation_url")
@@ -1755,7 +1810,7 @@ def command_event(args: argparse.Namespace) -> None:
                 abort("wait-complete requires the same active saved conversation tab or its recorded disconnected replacement")
             evidence = {
                 "wait_sequence": active_wait.get("wait_sequence"),
-                "wait_tab_id": active_wait.get("tab_id"),
+                "wait_tab_id": active_wait.get("wait_tab_id", active_wait.get("tab_id")),
                 "generation_sentinel": args.generation_sentinel,
                 "completion_proof": args.completion_proof,
                 "final_container": args.final_container,
@@ -1763,6 +1818,8 @@ def command_event(args: argparse.Namespace) -> None:
                 "conversation_url": state.get("conversation_url"),
                 "observed_at": utc_now(),
             }
+            if status == "completed":
+                state.setdefault("completion_history", []).append(active_wait)
             state["completion_evidence"] = evidence
             state["active_wait"] = None
         state["status"] = "completed"
@@ -2106,9 +2163,12 @@ def command_collect(args: argparse.Namespace) -> None:
             f"{args.answer_sha256}, got {observed_sha256}"
         )
     destination = run_dir / "answer.md"
-    if destination.exists():
-        abort("answer was already collected")
-    atomic_write(destination, data)
+    if destination.exists() or destination.is_symlink():
+        _, saved = read_regular_file_bytes(str(destination), label="saved answer")
+        if saved != data:
+            abort("saved answer differs from the verified extraction; refusing to overwrite")
+    else:
+        atomic_write(destination, data)
     state["status"] = "collected"
     state["answer_path"] = str(destination)
     state["answer_sha256"] = observed_sha256

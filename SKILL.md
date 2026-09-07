@@ -115,8 +115,10 @@ outside that supported connection.
 
 Open one fresh saved conversation, select the chosen Pro mode, paste the frozen
 message in one operation, check its value once, and click Send once. Register
-only this run's tabs. Record source/model evidence before the composer is ready,
-and save the resulting conversation URL immediately after sending. Existing
+only this run's tabs. Keep source/model checks, composer fill, and Send in the
+same verified ChatGPT tab. If the draft tab changes before the composer is ready,
+record source/model evidence again there. Save the conversation URL immediately
+after sending. Existing
 GitHub App authorization can be reused; change its settings only if access fails
 or the user asks. A pasted URL does not prove that ChatGPT retrieved the code.
 
@@ -139,6 +141,9 @@ On interruption, inspect the existing run with `show --run-dir /absolute/run`.
 A `pending` run whose page has now finished can record the same strict
 `wait-complete` evidence and collect, even after its wait budget is exhausted.
 Resume only the saved conversation; do not resend or upload another version.
+If its tab disconnects after completion, follow the protocol to revalidate the
+same saved conversation in its replacement tab before collecting. An interrupted
+`collect` can retry the same verified extraction without overwriting the answer.
 
 If the review is abandoned, confirm in the browser that it finished or was
 cancelled, then use `end` as described in the protocol. A timeout or closed tab
