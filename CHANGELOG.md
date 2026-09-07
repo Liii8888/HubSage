@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Adapt Pro selection guidance to the current reasoning picker: operate its
+  focusable capability menu item, verify the visible Pro level, and recognize
+  model-prefixed picker labels such as `6 Pro`. Keep Deep Research selection
+  independent and preserve the CLI's `Pro` evidence value.
+
 ## v2.0.1
 
 - Freeze backup branch/tag targets from the staging snapshot and scan the exact

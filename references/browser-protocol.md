@@ -16,8 +16,9 @@ For one run, the browser side may perform:
   GitHub CLI device-authorization attempt plus one fresh attempt only if the
   first code expires while the user completes sudo-mode authentication;
 - one new saved-chat navigation;
-- one targeted visible-capability and Deep Research state read; repeat those
-  checks only when replacing the verified draft before `composer-ready`;
+- the focused reads needed to operate the mode controls, followed by one final
+  Pro and Deep Research check; repeat that final check only when replacing the
+  verified draft before `composer-ready`;
 - at most one GitHub App grant check when existing authorization is unknown,
   and one exact source binding/readback (repeat for a replacement draft);
 - one single-operation composer fill and one value readback;
@@ -64,10 +65,39 @@ for the run. Activate a registered tab before recording browser evidence.
 Use semantic roles, accessible names, and visible control state. Do not bind to
 minified classes or private endpoints.
 
-The only acceptance label is visibly rendered `Pro`. A reasoning-strength label
-such as `xhigh` or `极高` is not proof of Pro. In one observed UI, Pro was the
-fifth/maximum slider position, but that position is only a current navigation
-hint and not a stable invariant. If the visible label cannot be verified, stop.
+Verify the selected **capability** is visibly `Pro`. The account's Pro badge,
+a model-family name, or a strength such as `xhigh` / `极高` does not establish
+that selection. The closed composer picker may combine the model and capability,
+for example `6 Pro`; record `--capability-label Pro` after verifying its Pro
+capability, without treating the model prefix as part of that CLI value.
+
+### Selecting Pro in the current picker
+
+Open the composer's reasoning/capability picker using its current visible label.
+In the Chinese UI observed on 2026-09-07, it opens a `思考强度` menu with separate
+`选择模型` and `能力` items. Pro is a capability level within `能力`; opening the
+model-family submenu is not required to change that level.
+
+Focus the accessible `能力` menu item and use its advertised Left/Right keys.
+Read the updated level after each adjustment and stop as soon as it says `Pro`.
+For example, `极高，第 4 项，共 5 项` needed one Right key to become
+`Pro，第 5 项，共 5 项`. Bound adjustments by the control's advertised levels;
+neither a fixed position nor reaching the maximum proves Pro was selected.
+
+With the supported browser Playwright surface, after observing those exact
+roles and names, that one adjustment is:
+
+```javascript
+await tab.playwright.getByRole("menuitem", { name: "能力", exact: true })
+  .press("ArrowRight");
+```
+
+The current menu contains a nested slider that may be absent from accessible
+locator matches. Use the focusable capability menu item instead of retrying that
+unmatched slider. If a different UI exposes a direct Pro option or an accessible
+slider, use that visible control and verify its resulting label. Use the actual
+language and labels returned by the current page, then close the picker.
+If Pro cannot be visibly verified, stop before submission.
 
 Deep Research is a separate state:
 

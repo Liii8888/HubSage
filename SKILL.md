@@ -113,8 +113,10 @@ supported browser connection to the user's logged-in ChatGPT session. Never
 copy cookies/profiles, use private ChatGPT APIs, or use raw browser automation
 outside that supported connection.
 
-Open one fresh saved conversation, select the chosen Pro mode, paste the frozen
-message in one operation, check its value once, and click Send once. Register
+Open one fresh saved conversation and select Pro using the protocol's
+[current picker guidance](references/browser-protocol.md#selecting-pro-in-the-current-picker).
+Set Deep Research separately for the chosen mode, paste the frozen message in
+one operation, check its value once, and click Send once. Register
 only this run's tabs. Keep source/model checks, composer fill, and Send in the
 same verified ChatGPT tab. If the draft tab changes before the composer is ready,
 record source/model evidence again there. Save the conversation URL immediately
