@@ -8,7 +8,7 @@
 ## 让 Agent 帮你安装
 
 > 帮我把 https://github.com/Liii8888/private-github-pro-review 安装为 Codex Skill。
-> 先读 README 和安全声明，再按下方说明安装已审核的 v2.0.2 提交。
+> 先读 README 和安全声明，再按下方说明安装已审核的 v2.0.3 提交。
 > 保留已有安装和审查记录，告诉我还需要哪些配置；安装阶段不用上传项目或发起审查。
 
 ## 安装到 Codex
@@ -17,11 +17,11 @@
 当前验证平台是 macOS，脚本使用 POSIX 文件锁。网页审查还需要账号中可用的 Pro，
 以及能访问私有备份库的 ChatGPT GitHub 连接。
 
-阅读源码后，在没有同名 `private-github-pro-review` 文件夹的位置执行。以下安装 **v2.0.2**：
+阅读源码后，在没有同名 `private-github-pro-review` 文件夹的位置执行。以下安装 **v2.0.3**：
 
 ```bash
 (
-  PGPR_REVIEWED_SHA=0d9a4b389011de3fa22bfb9384ed0619cdd2a282 &&
+  PGPR_REVIEWED_SHA=265e5e5c8026bf932325621254ff19885d286299 &&
   git clone --no-checkout https://github.com/Liii8888/private-github-pro-review.git private-github-pro-review &&
   cd private-github-pro-review &&
   git checkout --detach "$PGPR_REVIEWED_SHA" &&

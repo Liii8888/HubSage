@@ -9,7 +9,7 @@ request, then save the answer. Each project keeps one backup for later reviews.
 ## Let your agent install it
 
 > Install https://github.com/Liii8888/private-github-pro-review as a Codex Skill.
-> Read the README and security statement, then install the reviewed v2.0.2 commit
+> Read the README and security statement, then install the reviewed v2.0.3 commit
 > below. Preserve any existing installation and review records. Report any setup
 > still needed; installation should not upload a project or start a review.
 
@@ -21,11 +21,11 @@ uses POSIX locks. Web reviews need a ChatGPT account with Pro and access to the
 private repository through its GitHub connection.
 
 After reviewing the source, run this in a directory without an existing
-`private-github-pro-review` checkout. This installs **v2.0.2**:
+`private-github-pro-review` checkout. This installs **v2.0.3**:
 
 ```bash
 (
-  PGPR_REVIEWED_SHA=0d9a4b389011de3fa22bfb9384ed0619cdd2a282 &&
+  PGPR_REVIEWED_SHA=265e5e5c8026bf932325621254ff19885d286299 &&
   git clone --no-checkout https://github.com/Liii8888/private-github-pro-review.git private-github-pro-review &&
   cd private-github-pro-review &&
   git checkout --detach "$PGPR_REVIEWED_SHA" &&
