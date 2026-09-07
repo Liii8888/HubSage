@@ -13,7 +13,7 @@
 把下面这段话交给 Codex：
 
 > 帮我把 https://github.com/Liii8888/private-github-pro-review 安装为 Codex Skill。
-> 先读 README 和安全声明，再按下方说明安装已审核的 v2.0.1 提交。
+> 先读 README 和安全声明，再按下方说明安装已审核的 v2.0.2 提交。
 > 保留已有安装和审查记录，告诉我安装位置，以及还需要哪些 GitHub 或浏览器配置。
 > 安装阶段不用上传项目，也不用发起审查。
 
@@ -36,11 +36,11 @@
 以及能访问私有备份库的 ChatGPT GitHub 连接。
 
 阅读源码后，在没有同名 `private-github-pro-review` 文件夹的位置执行。
-下面的命令通过完整提交 SHA 固定安装 **v2.0.1**：
+下面的命令通过完整提交 SHA 固定安装 **v2.0.2**：
 
 ```bash
 (
-  PGPR_REVIEWED_SHA=fb54c1664fbf375b86358599b18a71a06a3c3b56 &&
+  PGPR_REVIEWED_SHA=0d9a4b389011de3fa22bfb9384ed0619cdd2a282 &&
   git clone --no-checkout https://github.com/Liii8888/private-github-pro-review.git private-github-pro-review &&
   cd private-github-pro-review &&
   git checkout --detach "$PGPR_REVIEWED_SHA" &&
