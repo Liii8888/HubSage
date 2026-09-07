@@ -17,11 +17,12 @@ For one run, the browser side may perform:
   first code expires while the user completes sudo-mode authentication;
 - one new saved-chat navigation;
 - the focused reads needed to operate the mode controls, followed by one final
-  Pro and Deep Research check; repeat that final check only when replacing the
-  verified draft before `composer-ready`;
+  Pro and Deep Research check after composer filling and tool/source selection;
+  repeat it after a correction or replacement draft before `composer-ready`;
 - at most one GitHub App grant check when existing authorization is unknown,
   and one exact source binding/readback (repeat for a replacement draft);
-- one single-operation composer fill and one value readback;
+- one single-operation composer fill and one final content readback, including
+  rich-link destinations; one content correction may repeat this final check;
 - one send-button click;
 - one long completion wait, plus one more only after a genuine disconnect;
 - one reattachment to the saved conversation URL;
@@ -104,8 +105,16 @@ Deep Research is a separate state:
 - `review`: Pro visible and Deep Research active.
 - `pro`: Pro visible and Deep Research inactive.
 
+Set this state after filling the message. In the current UI, Deep Research is
+an inline composer pill: whole-text `fill()` removes it along with the old
+composer contents. Its earlier presence is not evidence that it survived the
+fill. Verify the actual tool pill/selected state after all composer changes;
+the words "deep research" in ordinary prompt text do not establish the mode.
+
 Select the mode from the current user request; neither mode is preferred for
-all users. Do not repair a mismatch by silently changing run metadata. Before submission,
+all users. Restore a removed tool to that chosen mode before the final check;
+do not change run metadata to match an accidental UI state. To change the chosen
+mode or source instead, before submission,
 close abandoned run-owned tabs and use `supersede` while the run is still before
 `composer-ready`. Once ready or blocked, use `end` with the actual observation,
 then publish the corrected review. A missing URL does not prove it was unsent.
@@ -146,17 +155,47 @@ opened, indexed, or read repository contents.
 
 1. Prepare the entire prompt outside the composer.
 2. Fill or paste it in one operation. Do not use sequential keyboard typing.
-3. Read the composer once and compare it byte-for-byte with `prompt.txt`.
-4. Record `composer-ready` with the exact prompt SHA-256 and
-   `fill-method=single-operation`.
-5. Click the visible send button once. Never press Enter to submit or create a
+3. Set Deep Research for the chosen mode and restore any required source chip
+   after the fill. Do not replace the whole composer again after adding these
+   controls; a content correction must reapply them before the final check.
+4. Read the final composer and verify Pro, Deep Research and source in that same
+   tab. Compare message content with `prompt.txt` using the rich-link rules below.
+   Record or refresh `source-bound` from these post-fill observations.
+5. Record `composer-ready` with the frozen prompt SHA-256 and
+   `fill-method=single-operation`. This hash identifies the original message,
+   not an `innerText` serialization of the rich editor.
+6. Click the visible send button once, unless the user requested a stop before
+   sending. Never press Enter to submit or create a
    line break.
-6. Wait for a durable `https://chatgpt.com/c/...` saved-conversation URL, then
+7. Wait for a durable `https://chatgpt.com/c/...` saved-conversation URL, then
    record `submitted` with `submission-method=send-button`.
 
-If any readback differs, stop before sending. Do not clear and retype in the same
-run unless the exact composer value can still be established as one operation;
-otherwise supersede it.
+### Rich-link content readback
+
+ChatGPT may render a pasted GitHub URL as a blue repository link. Accept that
+representation when its actual destination matches the frozen URL and the
+complete review request is preserved. A shortened label is not itself an error
+or sufficient evidence of the destination.
+
+Use one targeted composer DOM read to inspect text and link/reference targets.
+For the current URL pill, `data-reference-type="url"` and `data-id` expose the
+complete destination; an ordinary anchor exposes `href`. Use attributes actually
+observed on the page, not a URL reconstructed from the label. Do not rely on
+`innerText` alone: it includes tool labels, cursor placeholders and display breaks.
+
+Compare every request paragraph and link target without paraphrasing the request.
+Ignore only editor presentation: identified tool pills, their adjacent spacer,
+identified `aria-hidden` cursor scaffolding, visual wrapping, and terminal blank
+lines. Preserve meaningful text, numbers, constraints, code whitespace and link
+targets; do not globally strip invisible characters or collapse whitespace to
+manufacture a match. Record the observed representation and accepted display
+differences alongside the run when conversion was needed.
+
+A real content/target mismatch, missing required mode, or uninspectable link
+stops submission. Before `composer-ready`, one single-operation content
+correction may reapply tools and repeat the final check in the same owned draft;
+if still unresolved, stop. Display conversion alone does not require another
+repository, conversation or frozen prompt.
 
 `prompt.txt` itself is frozen by its recorded byte count and SHA-256. Every v3
 tab registration/activation, browser-state, supersede, and collection operation
@@ -329,7 +368,8 @@ For frequent-access, unusual-automation, or rate-limit warnings:
 
 Use actual observed values for the placeholders. `--deep-research` is `inactive`
 and the final container is `assistant-turn` in `pro` mode; they are `active` and
-`deep-research-report` in `review` mode. The CLI only records observations.
+`deep-research-report` in `review` mode. Source/model observations below must come
+after composer filling and final tool selection. The CLI only records observations.
 
 ```bash
 python3 <skill-dir>/scripts/review_repo.py tab --run-dir /absolute/run \

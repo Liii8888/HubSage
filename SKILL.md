@@ -115,8 +115,11 @@ outside that supported connection.
 
 Open one fresh saved conversation and select Pro using the protocol's
 [current picker guidance](references/browser-protocol.md#selecting-pro-in-the-current-picker).
-Set Deep Research separately for the chosen mode, paste the frozen message in
-one operation, check its value once, and click Send once. Register
+Fill the frozen message in one operation, then set Deep Research for the chosen
+mode. Whole-composer filling can remove inline tool and source chips. Follow the
+protocol's [final composer check](references/browser-protocol.md#composer-and-submission)
+to verify the resulting Pro mode, source and message content, including rich-link
+destinations. Click Send once unless the user asked to stop before sending. Register
 only this run's tabs. Keep source/model checks, composer fill, and Send in the
 same verified ChatGPT tab. If the draft tab changes before the composer is ready,
 record source/model evidence again there. Save the conversation URL immediately

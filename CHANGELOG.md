@@ -6,6 +6,11 @@
   focusable capability menu item, verify the visible Pro level, and recognize
   model-prefixed picker labels such as `6 Pro`. Keep Deep Research selection
   independent and preserve the CLI's `Pro` evidence value.
+- Set Deep Research and source chips after whole-composer filling, then verify
+  the final mode so filling cannot silently remove an already selected tool.
+- Accept ChatGPT's rich GitHub links after checking their actual destinations
+  and the complete request content. Ignore identified editor-only presentation
+  differences while preserving frozen prompt bytes and meaningful content.
 
 ## v2.0.1
 
