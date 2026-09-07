@@ -971,6 +971,7 @@ def publish_backup(
                 "git",
                 "fetch",
                 "--quiet",
+                "--no-tags",
                 upload_remote,
                 "+refs/tags/*:refs/private-review/tags/*",
             ],

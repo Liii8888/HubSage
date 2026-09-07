@@ -1998,6 +1998,27 @@ class UploadFirstTests(unittest.TestCase):
         self.assertEqual(result["review_branch"], result["branch_destinations"]["topic/feature"].removeprefix("refs/heads/"))
         self.assertEqual(result["review_commit"], second)
 
+    def assert_annotated_tag_prefix_backup(self, old: str, new: str) -> None:
+        command("git", "tag", "-a", old, self.first, "-m", "first backup tag", cwd=self.repo)
+        original = command("git", "rev-parse", f"refs/tags/{old}", cwd=self.repo)
+        first = self.publish()
+        self.cli("end", "--run-dir", first["run_dir"], "--observed", "not-submitted", "--reason", "next review")
+        command("git", "tag", "-d", old, cwd=self.repo)
+        command("git", "tag", "-a", new, self.first, "-m", "next backup tag", cwd=self.repo)
+        current = command("git", "rev-parse", f"refs/tags/{new}", cwd=self.repo)
+        result = self.publish()
+        self.assertEqual((result["status"], self.creations), ("uploaded", 1))
+        self.assertEqual(command("git", "rev-parse", f"refs/tags/{old}", cwd=self.remote), original)
+        self.assertEqual(command("git", "rev-parse", result["tag_destinations"][new], cwd=self.remote), current)
+        self.assertEqual(result["review_commit"], self.first)
+        self.assertEqual(command("git", "for-each-ref", "--format=%(refname)", "refs/tags", cwd=self.repo), f"refs/tags/{new}")
+
+    def test_next_backup_accepts_annotated_tag_parent_to_child(self) -> None:
+        self.assert_annotated_tag_prefix_backup("release", "release/v1")
+
+    def test_next_backup_accepts_annotated_tag_child_to_parent(self) -> None:
+        self.assert_annotated_tag_prefix_backup("release/v1", "release")
+
     def test_net_zero_working_tree_upload_preserves_staging_and_uses_head(self) -> None:
         (self.repo / "value.txt").write_text("staged change\n")
         command("git", "add", "value.txt", cwd=self.repo)
