@@ -1913,6 +1913,79 @@ class UploadFirstTests(unittest.TestCase):
             self.prepare(result)
         self.assertEqual(self.creations, 0)
 
+    def test_rejected_first_destination_allows_renamed_retry(self) -> None:
+        marker = MODULE.DESCRIPTION_PREFIX + MODULE.project_key(self.repo.resolve())
+        for name, changes, error in (
+            ("public", {"private": False}, "non-private"),
+            ("unmanaged", {"description": "another project"}, "management marker"),
+        ):
+            with self.subTest(destination=name):
+                self.state_root = self.root / ("state-" + name)
+                self.mirror = f"tester/{name}-backup"
+                self.info = mirror_metadata(self.mirror, marker, **changes)
+                before = (self.creations, self.transfers)
+                with self.assertRaisesRegex(MODULE.ReviewError, error):
+                    self.publish()
+                self.assertEqual((self.creations, self.transfers), before)
+                self.assertNotIn(str(self.repo.resolve()), MODULE.load_project_map(self.state_root)["projects"])
+                failed_dir = next((self.state_root / "runs").iterdir())
+                failed_state = MODULE.load_run(failed_dir)
+                self.assertEqual(failed_state["status"], "failed")
+
+                self.mirror = f"tester/{name}-renamed-backup"
+                self.info = None
+                uploaded = self.publish()
+                self.assertEqual((uploaded["status"], uploaded["mirror"]), ("uploaded", self.mirror))
+                self.assertEqual(self.creations, before[0] + 1)
+                self.assertEqual(MODULE.load_project_map(self.state_root)["projects"][str(self.repo.resolve())]["mirror"], self.mirror)
+                self.assertEqual(MODULE.load_run(failed_dir), failed_state)
+
+    def test_repository_lookup_error_allows_renamed_retry(self) -> None:
+        with mock.patch.object(MODULE, "github_repo_info", side_effect=MODULE.ReviewError("lookup unavailable")):
+            with self.assertRaisesRegex(MODULE.ReviewError, "lookup unavailable"):
+                self.publish()
+        self.assertEqual((self.creations, self.transfers), (0, 0))
+        self.assertNotIn(str(self.repo.resolve()), MODULE.load_project_map(self.state_root)["projects"])
+        self.mirror = "tester/renamed-after-lookup-error"
+        self.assertEqual(self.publish()["status"], "uploaded")
+        self.assertEqual(self.creations, 1)
+
+    def test_creation_error_or_interruption_preserves_destination_for_retry(self) -> None:
+        for name, exception, status in (
+            ("error", MODULE.ReviewError("creation reply lost"), "failed"),
+            ("interruption", KeyboardInterrupt(), "preparing"),
+        ):
+            with self.subTest(failure=name):
+                self.state_root = self.root / ("state-" + name)
+                self.mirror = f"tester/{name}-backup"
+                self.info = None
+                before = (self.creations, self.transfers)
+
+                def lose_creation_reply(*args: str, **kwargs: object):
+                    if args[:2] == ("repo", "create"):
+                        mapped = MODULE.load_project_map(self.state_root)["projects"][str(self.repo.resolve())]
+                        self.assertEqual(mapped["mirror"], self.mirror)
+                        self.fake_github(*args, **kwargs)
+                        raise exception
+                    return self.fake_github(*args, **kwargs)
+
+                with mock.patch.object(MODULE, "github", side_effect=lose_creation_reply):
+                    with self.assertRaises(type(exception)):
+                        self.publish()
+                self.assertEqual((self.creations, self.transfers), (before[0] + 1, before[1]))
+                run_dir = next((self.state_root / "runs").iterdir())
+                self.assertEqual(MODULE.load_run(run_dir)["status"], status)
+                if status == "preparing":
+                    self.assertEqual(self.publish()["status"], "resume-required")
+                    self.cli("end", "--run-dir", str(run_dir), "--observed", "not-submitted",
+                             "--reason", "creation interrupted")
+                with self.assertRaisesRegex(MODULE.ReviewError, "persistent mirror mapping"):
+                    self.cli("publish", "--repo", str(self.repo), "--state-root", str(self.state_root),
+                             "--mirror", "tester/unintended-second-backup")
+                uploaded = self.publish()
+                self.assertEqual((uploaded["status"], uploaded["mirror_created"]), ("uploaded", False))
+                self.assertEqual(self.creations, before[0] + 1)
+
     def test_interrupted_upload_reserves_mirror_and_requires_end(self) -> None:
         with mock.patch.object(MODULE, "publish_backup", side_effect=KeyboardInterrupt):
             with self.assertRaises(KeyboardInterrupt):

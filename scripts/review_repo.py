@@ -799,19 +799,6 @@ def validate_mirror_info(mirror: str, marker: str, info: dict[str, Any] | None) 
     return info
 
 
-def ensure_private_mirror(mirror: str, marker: str) -> tuple[dict[str, Any], bool]:
-    info = github_repo_info(mirror)
-    created = False
-    if info is None:
-        github(
-            "repo", "create", mirror, "--private", "--disable-issues",
-            "--disable-wiki", "--description", marker,
-        )
-        info = github_repo_info(mirror)
-        created = True
-    return validate_mirror_info(mirror, marker, info), created
-
-
 def verified_upload_remote(stage: Path, mirror: str, run_id: str) -> str:
     mirror_identity(mirror)
     remote = f"{MANAGER}-upload-{run_id}"
@@ -1477,8 +1464,13 @@ def publish_with_lease(args: argparse.Namespace, execution: ExitStack) -> None:
                     "github_app_auth": {"status": "unverified"},
                 }
             else:
-                # Reserve the destination before the first remote side effect;
-                # a hard interruption can have created or partly uploaded it.
+                # A rejected name or failed lookup must not bind a new project.
+                info = github_repo_info(mirror)
+                if info is not None:
+                    validate_mirror_info(mirror, marker, info)
+
+                # Reserve before creation or upload: either can succeed remotely
+                # even when its reply is lost or the publisher is interrupted.
                 run_state = load_run(run_dir)
                 run_state.update({"mirror": mirror, "github_cli_auth": cli_auth,
                                   "review_commit": staging["review_commit"]})
@@ -1490,7 +1482,13 @@ def publish_with_lease(args: argparse.Namespace, execution: ExitStack) -> None:
                         "updated_at": utc_now(),
                     }
                     save_project_map(state_root, projects)
-                _, created = ensure_private_mirror(mirror, marker)
+                created = info is None
+                if created:
+                    github(
+                        "repo", "create", mirror, "--private", "--disable-issues",
+                        "--disable-wiki", "--description", marker,
+                    )
+                    validate_mirror_info(mirror, marker, github_repo_info(mirror))
                 published = publish_backup(staging["stage"], mirror, staging, run_id, marker=marker)
                 result = {
                     "status": "published" if prompt is not None else "uploaded",

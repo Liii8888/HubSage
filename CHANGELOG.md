@@ -1,11 +1,16 @@
 # Changelog
 
-## Unreleased
+## v2.0.1
+
+- Validate the proposed GitHub destination before recording a first project
+  mapping. A rejected repository name or failed lookup no longer prevents retrying
+  with another name.
+- Still reserve the destination before creating or uploading a backup, so a lost
+  creation reply or interrupted upload retains the original repository for retry.
 
 - Reorganize the project guide around agent installation, features, usage,
   optional first-use setup, security, recovery, and validation. Add a Chinese
   companion README and pin the installation example to the v2.0.0 release SHA.
-- Keep the released runtime, installed Vault snapshot, and v2.0.0 assets unchanged.
 
 ## v2.0.0
 
