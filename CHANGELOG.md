@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v2.0.2
 
 - Adapt Pro selection guidance to the current reasoning picker: operate its
   focusable capability menu item, verify the visible Pro level, and recognize
