@@ -3,3 +3,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 artifacts/
+
+# Local maintenance; excluded from public source and release packages.
+/AGENTS.md
+/tests/

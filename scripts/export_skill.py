@@ -16,16 +16,12 @@ from pathlib import Path
 UPSTREAM = "https://github.com/Liii8888/private-github-pro-review"
 PAYLOAD = (
     "SKILL.md",
-    "README.md",
-    "CHANGELOG.md",
-    "scripts/export_skill.py",
-    "KNOWN-ISSUES.md",
     "LICENSE",
     "agents/openai.yaml",
     "references/browser-protocol.md",
     "scripts/review_repo.py",
-    "tests/test_review_repo.py",
 )
+
 STATE_ASSIGNMENT = b"DEFAULT_STATE_ROOT = default_state_root()\n"
 
 
@@ -103,24 +99,6 @@ def prepare(repo: Path, ref: str, local_state_root: str | None = None) -> dict[s
         "local_adaptation": adaptation, "files": records,
     }
     output["DISTRIBUTION.json"] = (encoded(manifest), 0o644)
-    local_note = (
-        "None. Payload bytes match the source commit."
-        if local_state_root is None else
-        "The default state directory is set to " + json.dumps(local_state_root) +
-        ". PRIVATE_GITHUB_PRO_REVIEW_HOME and the existing --state-root option still override it. "
-        "This is a local distribution; do not publish its machine configuration."
-    )
-    provenance = (
-        "# Distribution provenance\n\n"
-        f"- Upstream: {UPSTREAM}\n- Source commit: `{ref}`\n"
-        f"- Version: `{version.group(1)}`\n- License: MIT\n"
-        "- Approval: recorded by the consuming Vault; export alone does not approve or activate a Skill.\n\n"
-        f"## Local adaptation\n\n{local_note}\n\n"
-        "Verify against the recorded commit and the independently approved local state path "
-        "with scripts/export_skill.py from the source repository. DISTRIBUTION.json records "
-        "source and distributed file hashes. Developing a newer source HEAD does not change this snapshot.\n"
-    )
-    output["UPSTREAM.md"] = (provenance.encode(), 0o644)
     return output
 
 

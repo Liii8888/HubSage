@@ -37,7 +37,7 @@ or move its folder without reconciling that mapping.
 Use the intended existing GitHub CLI account. If authentication is invalid,
 follow the conditional login recovery in the [browser protocol](references/browser-protocol.md);
 do not reset a valid login. First-use GitHub App and browser setup tips are in
-[README.md](README.md#首次使用的小提示); they are not a mandatory repeated checklist.
+[the project guide](https://github.com/Liii8888/private-github-pro-review#first-use-setup-tips); they are not a mandatory repeated checklist.
 
 ```bash
 python3 <skill-dir>/scripts/review_repo.py publish --repo /absolute/project/path
@@ -162,4 +162,4 @@ Legacy runs remain readable and unverified, never silently upgraded.
 
 Report the backup URL, reviewed commit, mode, conversation URL, final status,
 and answer path. Treat the answer as review advice to verify against the code.
-Current limitations are in [KNOWN-ISSUES.md](KNOWN-ISSUES.md).
+Setup and data limits are in the [project guide](https://github.com/Liii8888/private-github-pro-review#security-and-data).
