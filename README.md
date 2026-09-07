@@ -15,7 +15,7 @@ it for the next review. The workflow uses your GitHub account and ChatGPT sessio
 Give Codex this request:
 
 > Install https://github.com/Liii8888/private-github-pro-review as a Codex Skill.
-> Read its README and security statement, then install the reviewed v2.0.0 commit
+> Read its README and security statement, then install the reviewed v2.0.1 commit
 > using the instructions below. Preserve any existing installation and review
 > records. Tell me where the Skill is installed and what GitHub or browser setup
 > remains. Do not upload a project or start a review as part of installation.
@@ -44,12 +44,12 @@ the scripts use POSIX file locks. Web reviews also need a ChatGPT account with
 Pro available and a GitHub connection that can access the private backup.
 
 After reviewing the source, run this from a directory without an existing
-`private-github-pro-review` checkout. It installs **v2.0.0**, pinned to its full
+`private-github-pro-review` checkout. It installs **v2.0.1**, pinned to its full
 release commit:
 
 ```bash
 (
-  PGPR_REVIEWED_SHA=27b04870f6ef5b078f7399fad4bdbdda45480fd2 &&
+  PGPR_REVIEWED_SHA=fb54c1664fbf375b86358599b18a71a06a3c3b56 &&
   git clone --no-checkout https://github.com/Liii8888/private-github-pro-review.git private-github-pro-review &&
   cd private-github-pro-review &&
   git checkout --detach "$PGPR_REVIEWED_SHA" &&
