@@ -2,6 +2,9 @@
 
 ## v2.0.1
 
+- Add brief, optional direction for drafting a review request from the user's
+  goal. Supplied messages remain unchanged; Pro chooses its investigation and
+  response structure.
 - Validate the proposed GitHub destination before recording a first project
   mapping. A rejected repository name or failed lookup no longer prevents retrying
   with another name.

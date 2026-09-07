@@ -24,8 +24,9 @@ Choose from the current request, not a universal preference:
 - If the user wants their current changes reviewed, include uncommitted changes
   with `--include-working-tree`. If they want only committed code, use
   `--committed-only`. A dirty checkout without either choice stops for clarification.
-- Preserve the user's review requirements exactly in a UTF-8 file. Only ask
-  about mode or scope when it cannot be determined from their request.
+- Save user-supplied review text unchanged in a UTF-8 file. If they gave a goal
+  without a message to send, draft a short request using the guidance below.
+  Only ask about mode or scope when it cannot be determined from their request.
 
 One project means one resolved local Git root, with one mapping in the selected
 state directory. Do not run the same project through competing state directories
@@ -65,6 +66,17 @@ per-path authorization with `--allow-sensitive-path`; a passed scan cannot prove
 that every kind of secret was found.
 
 ## 2. Prepare the message after upload
+
+When drafting a request, keep the user's stated requirements and use their
+language. For a general review, a useful direction is:
+
+> Understand the project's intended use. Focus on issues that materially affect
+> its goals, explaining their impact with supporting code. State uncertainty
+> where evidence is incomplete.
+
+Adapt the focus to the current task; let Pro choose its investigation and
+response structure. Use this guidance only when drafting a message, not as text
+to append to a user-supplied or already frozen request.
 
 Select the mode from this review's request, then run:
 
